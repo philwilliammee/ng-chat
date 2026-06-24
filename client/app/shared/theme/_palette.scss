@@ -1,0 +1,76 @@
+/*
+* http://mcg.mbitson.com/#!?cutheme=%232d668e&themename=mcgtheme
+* default palettes - https://github.com/angular/components/blob/main/src/material/core/theming/_palette.scss
+* For use in src/lib/core/theming/_palette.scss
+*/
+
+$dark-primary-text: rgba(black, 0.87);
+$light-primary-text: white;
+
+$cu-theme-secondary: (
+    50 : #f6e4e4,
+    100 : #e8bbbb,
+    200 : #d98d8d,
+    300 : #ca5f5f,
+    400 : #be3d3d,
+    500 : #b31b1b,
+    600 : #ac1818,
+    700 : #a31414,
+    800 : #9a1010,
+    900 : #8b0808,
+    A100 : #ffb8b8,
+    A200 : #ff8585,
+    A400 : #ff5252,
+    A700 : #ff3939,
+    contrast: (
+        50 : $dark-primary-text,
+        100 : $dark-primary-text,
+        200 : $dark-primary-text,
+        300 : $light-primary-text,
+        400 : $light-primary-text,
+        500 : $light-primary-text,
+        600 : $light-primary-text,
+        700 : $light-primary-text,
+        800 : $light-primary-text,
+        900 : $light-primary-text,
+        A100 : $dark-primary-text,
+        A200 : $dark-primary-text,
+        A400 : $dark-primary-text,
+        A700 : $light-primary-text,
+    )
+);
+
+/* For use in src/lib/core/theming/_palette.scss */
+$cu-theme-primary: (
+    50 : #e6edf1,
+    100 : #c0d1dd,
+    200 : #96b3c7,
+    300 : #6c94b0,
+    400 : #4d7d9f,
+    500 : #2d668e,
+    600 : #285e86,
+    700 : #22537b,
+    800 : #1c4971,
+    900 : #11385f,
+    A100 : #96c6ff,
+    A200 : #63aaff,
+    A400 : #308fff,
+    A700 : #1681ff,
+    contrast: (
+        50 : $dark-primary-text,
+        100 : $dark-primary-text,
+        200 : $dark-primary-text,
+        300 : $dark-primary-text,
+        400 : $light-primary-text,
+        500 : $light-primary-text,
+        600 : $light-primary-text,
+        700 : $light-primary-text,
+        800 : $light-primary-text,
+        900 : $light-primary-text,
+        A100 : $dark-primary-text,
+        A200 : $dark-primary-text,
+        A400 : $light-primary-text,
+        A700 : $light-primary-text,
+    )
+);
+

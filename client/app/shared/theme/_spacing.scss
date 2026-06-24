@@ -1,0 +1,104 @@
+.pos-abs,
+.position-absolute {
+  position: absolute;
+}
+
+.pos-rel,
+.position-relative {
+  position: relative;
+}
+
+// margins and padding
+
+.p-1,
+.p-8 {
+  padding: 8px;
+}
+
+.p-2 {
+  padding: 16px;
+}
+
+.p-3 {
+  padding: 24px;
+}
+
+.pr-1 {
+  padding-right: 8px;
+}
+
+.pl {
+  padding-left: 4px;
+}
+
+.pl-1 {
+  padding-left: 8px;
+}
+
+.pb-1 {
+  padding-bottom: 8px;
+}
+
+.pb-2 {
+  padding-bottom: 16px;
+}
+
+.pb-4 {
+  padding-bottom: 32px;
+}
+
+.padded-top {
+  padding-top: 45px;
+}
+
+.padded-bottom {
+  padding-bottom: 45px;
+}
+
+.pt-1 {
+  padding-top: 8px;
+}
+
+.pt-2 {
+  padding-top: 16px;
+}
+
+.pt-3 {
+  padding-top: 24px;
+}
+
+.pt-4 {
+  padding-top: 32px;
+}
+
+.margin {
+  margin: 4px;
+}
+
+.m-0 {
+  margin: 0px !important;
+}
+
+.m-1 {
+  margin: 8px;
+}
+
+.m-2 {
+  margin: 16px;
+}
+
+.m-3 {
+  margin: 24px;
+}
+
+.ml-2 {
+  margin-left: 16px;
+}
+
+.mt-4 {
+  margin-top: 24px;
+}
+
+.mb-2 {
+  margin-bottom: 16px;
+}

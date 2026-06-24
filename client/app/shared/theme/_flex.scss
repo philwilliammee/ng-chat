@@ -1,0 +1,122 @@
+// @todo use mixins
+// .flex-form {
+//   max-width: 680px;
+//   margin: auto;
+//   display: flex;
+//   flex-direction: column;
+//   gap: 16px;
+
+//   .mat-form-field,
+//   .mat-mdc-form-field {
+//     flex: 1;
+//   }
+
+//   .mat-mdc-text-field-wrapper {
+//     min-width: 280px;
+//   }
+
+// }
+
+.full-flex,
+.flex {
+  display: flex;
+}
+
+.fd-c,
+.flex-direction-column {
+  flex-direction: column;
+}
+
+.flex-wrap-wrap {
+  flex-wrap: wrap;
+}
+
+.flex-grow,
+.flex-1 {
+  flex: 1;
+}
+
+.flex-2 {
+  flex: 2;
+}
+
+.flex-3 {
+  flex: 3;
+}
+
+.flex-4 {
+  flex: 4;
+}
+
+.gap-0 {
+  gap: 0;
+}
+
+.gap,
+.gap-4 {
+  gap: 4px;
+}
+
+.gap-1,
+.gap-8 {
+  gap: 8px;
+}
+
+.gap-2,
+.gap-16 {
+  gap: 16px;
+}
+
+.gap-3,
+.gap-24 {
+  gap: 24px;
+}
+
+.gap-6 {
+  gap: 48px;
+}
+
+.ai-c,
+.align-items-center {
+  align-items: center;
+}
+
+.ai-s,
+.align-items-start {
+  align-items: flex-start;
+}
+
+.ai-e,
+.align-items-end {
+  align-items: flex-end;
+}
+
+.jc-c,
+.justify-content-center {
+  justify-content: center;
+}
+
+.jc-sb,
+.justify-content-space-between,
+.justify-content-between {
+  justify-content: space-between;
+}
+
+.jc-e,
+.justify-content-end,
+.justify-content-flex-end {
+  justify-content: flex-end;
+}
+
+.flex-direction-row-reverse {
+  flex-direction: row-reverse;
+}
+
+// apply styles to screen sizes below 768px
+@media (max-width: 767px) {
+
+  // full-flex will remain row
+  .flex {
+    flex-direction: column;
+  }
+}

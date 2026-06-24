@@ -1,0 +1,44 @@
+/* minimum size so that inputs don't auto-zoom on mobile */
+input,
+select:focus,
+textarea {
+  font-size: 16px !important;
+  line-height: 16px !important;
+}
+
+/* Global focus-visible style for keyboard navigation */
+:focus-visible {
+  outline: 3px solid #2e5690; // @todo var outline-color
+  outline-offset: 2px;
+}
+
+/* Material overrides its own outline — restore high-contrast ring (WCAG 1.4.1) */
+a[mat-button]:focus-visible,
+a[mat-raised-button]:focus-visible,
+a[mat-stroked-button]:focus-visible,
+a[mat-flat-button]:focus-visible,
+button[mat-button]:focus-visible,
+button[mat-raised-button]:focus-visible,
+button[mat-stroked-button]:focus-visible,
+button[mat-flat-button]:focus-visible,
+button[mat-icon-button]:focus-visible {
+  outline: 3px solid #2e5690 !important;
+  outline-offset: 2px !important;
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .collapsible-content {
+    transition: none;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+// Remove focus outline for mouse users, keep for keyboard
+// #main:focus:not(:focus-visible) {
+//   outline: none;
+// }

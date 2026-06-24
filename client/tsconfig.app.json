@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../out-tsc/app",
+    "types": ["node"],
+    "target": "ES2022",
+    "module": "ES2022"
+  },
+  "files": ["main.ts"],
+  "include": ["**/*.ts", "**/*.d.ts", "../packages/chat-ui/src/**/*.ts"],
+  "exclude": ["../server/**/*", "../node_modules/**/*", "../dist/**/*"]
+}

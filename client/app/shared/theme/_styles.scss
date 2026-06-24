@@ -1,0 +1,247 @@
+@use './_variables' as *;
+
+/* The minimal styles used by cornell base theme */
+html {
+  -webkit-text-size-adjust: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: subpixel-antialiased;
+  height: 100%;
+
+  #main {
+    h2 {
+      color: var(--color-accent);
+    }
+  }
+}
+
+*,
+:after,
+:before {
+  box-sizing: border-box;
+}
+
+.sr-only,
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.row {
+  margin-left: -15px;
+  margin-right: -15px;
+
+  >* {
+    padding-left: 15px;
+    padding-right: 15px;
+  }
+
+  &:after {
+    content: " ";
+    display: table;
+    clear: both;
+  }
+
+  &:before {
+    content: " ";
+    display: table;
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+
+
+  >.primary {
+    float: left;
+    width: 100%;
+    margin-bottom: 2.5em;
+  }
+
+  >.secondary {
+    float: left;
+    width: 100%;
+    margin-bottom: 2.5em;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+}
+
+.container-fluid {
+  margin-right: auto;
+  margin-left: auto;
+  padding-left: 15px;
+  padding-right: 15px;
+
+  &:before {
+    content: " ";
+    display: table;
+  }
+
+  &:after {
+    content: " ";
+    display: table;
+    clear: both;
+  }
+}
+
+// apply styles to screen sizes above 768px
+@media (min-width: $screen-sm-min) {
+  .container-fluid {
+    padding-left: 30px;
+    padding-right: 30px;
+    max-width: 1340px;
+  }
+
+  #cu-header lib-mobile-menu {
+    display: none;
+  }
+
+  .mobile-only {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+
+  lib-main-menu {
+    display: none;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  #utility-navigation {
+    display: none;
+  }
+}
+
+@media (min-width: 992px) {
+  .container-fluid {
+    padding-left: ($grid-gutter-width * 2);
+    padding-right: ($grid-gutter-width * 2);
+    max-width: ($cwd-container-fluid-max-width + ($grid-gutter-width * 4));
+  }
+}
+
+
+@media (min-width: 768px) {
+  .sidebar-tint #main-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  .sidebar-tint #main-content:before {
+    display: block !important;
+    top: 0;
+    left: auto;
+    right: 0;
+    width: 35%;
+    bottom: 0;
+    content: "";
+    z-index: -1;
+    position: absolute;
+    background: #f7f7f7;
+    // width: 32%;
+    // width: calc(35% - #{$grid-gutter-width * 1.3333333334});
+  }
+}
+
+// Mobile dialog
+.mobile-dialog-backdrop {
+  background-color: rgba(51, 51, 51, 0.95);
+}
+
+.mobile-dialog {
+  .mat-dialog-container {
+    background-color: transparent;
+    color: white;
+
+    button,
+    a {
+      color: white;
+    }
+  }
+}
+
+// Utility Nav.
+.cu-black #utility-navigation a,
+.cu-gray #utility-navigation a {
+  color: #ddd !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+.cu-black #utility-navigation a:hover,
+.cu-gray #utility-navigation a:hover,
+.cu-black #utility-navigation a:focus,
+.cu-gray #utility-navigation a:focus {
+  background: rgba(255, 255, 255, 0.2) !important;
+  ;
+}
+
+.cu-black #utility-navigation a:active,
+.cu-gray #utility-navigation a:active {
+  background: rgba(0, 0, 0, 0.8) !important;
+  ;
+}
+
+// Main menu panel
+.mat-menu-panel {
+  border-radius: 0 !important;
+  background-color: rgb(85, 85, 85);
+
+  .mat-menu-content {
+    padding: 0 !important;
+
+    a {
+      color: white !important;
+
+      &:focus,
+      &:hover {
+        background: rgba(0, 0, 0, 0.3) !important;
+      }
+
+      &.active {
+        border-left: solid 3px var(--color-accent);
+      }
+    }
+  }
+}
+
+// mobile menu expand button label make full width
+lib-mobile-dialog .parent .mdc-button__label {
+  width: 100%;
+}
+
+.full-width {
+  width: 100%;
+  max-width: 100% !important;
+}
+
+// @todo: temporary styles need to refactor
+@media (min-width: 1200px) {
+  #cu-header .cu-brand h2 {
+    font-size: 58px !important;
+  }
+}

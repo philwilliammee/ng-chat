@@ -1,0 +1,210 @@
+// @import "../../../../styles.scss";
+
+:host {
+  .list-menu {
+    padding: 0;
+    margin: 0 0 1.5em;
+    list-style: none;
+    float: left;
+    width: 100%;
+    clear: both;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+
+    li {
+      float: left;
+      display: block;
+      background: none !important;
+      padding: 0 0.6em 0 0;
+      margin: 0 0.6em 0.6em 0;
+      border-width: 0 1px 0 0;
+
+      &:last-child {
+        border-right-width: 0;
+      }
+    }
+  }
+
+  .list-menu.links {
+    li {
+      padding: 0;
+      margin: 0 2px 2px 0;
+    }
+
+
+    a {
+      text-transform: capitalize;
+      display: block;
+      // background: #f5f5f5;
+      // background: rgba(0, 0, 0, 0.04);
+      padding: 0.4em 0.7em;
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.07);
+        color: #000;
+      }
+
+      &:focus {
+        background: rgba(0, 0, 0, 0.07);
+        color: #000;
+      }
+
+      &:active {
+        background: rgba(0, 0, 0, 0.12);
+      }
+    }
+  }
+
+  #main-navigation {
+    background: #666;
+    color: #fff;
+    // This is needed to fix the overlay being really big
+    display: block;
+    float: left;
+    width: 100%;
+
+    li {
+      margin: 0 1px 0 0;
+
+      a {
+        font-family: -apple-system, system-ui, BlinkMacSystemFont, Avenir Next, "Segoe UI", Roboto, Helvetica Neue, sans-serif;
+        font-size: 15px;
+        line-height: 18px;
+        border-radius: 0;
+        height: 46px;
+
+        // force icons on right
+        display: flex;
+        flex-direction: row-reverse;
+        align-items: center;
+        justify-content: space-evenly;
+      }
+
+
+      &:hover {
+        >a {
+          background: #444;
+          background: rgba(0, 0, 0, 0.3);
+        }
+      }
+    }
+
+    a {
+      color: #fff;
+      padding: 14px 1.5em;
+      text-decoration: none;
+      background: transparent;
+      transition: background-color .15s;
+
+      &:hover {
+        background: #444;
+        background: rgba(0, 0, 0, 0.3);
+      }
+
+      &:focus {
+        background: #444;
+        background: rgba(0, 0, 0, 0.3);
+      }
+    }
+
+    li.active {
+      >a {
+        background: #444;
+        background: rgba(0, 0, 0, 0.3);
+      }
+    }
+  }
+
+
+  // Rotate the menu icon
+  .mat-mdc-menu-trigger[aria-expanded="true"] {
+    .mat-icon {
+      transform: rotate(180deg);
+    }
+  }
+
+  .mat-icon {
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1) 0ms;
+    margin-right: 0px;
+  }
+
+  // Expand button
+  button.mat-mdc-menu-trigger,
+  button.mat-mdc-button {
+    font-family: -apple-system, system-ui, BlinkMacSystemFont, Avenir Next, "Segoe UI", Roboto, Helvetica Neue, sans-serif;
+    font-size: 15px;
+    border-radius: 0;
+    height: 46px;
+    text-transform: capitalize;
+    display: block;
+    color: white;
+    background-color: #666;
+    text-align: center;
+    border: none;
+    border-radius: 0;
+
+    // force icons on right
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    justify-content: space-evenly;
+
+    &:hover,
+    &:focus {
+      background: rgba(0, 0, 0, 0.3) !important;
+    }
+  }
+
+  button[routerlinkactive="active"] {
+    background: #444;
+    background: rgba(0, 0, 0, 0.3);
+  }
+
+
+  // CWD - style hover over menu
+  // .dropdown-menu ul ul {
+  //   position: absolute;
+  //   z-index: 100;
+  //   background: #555;
+  //   width: auto;
+  //   min-width: 12em;
+  //   max-width: 24em;
+  //   margin: 0 !important;
+  //   overflow: hidden;
+  //   height: 0;
+  //   opacity: 0;
+  //   -ms-filter: 'progid:DXImageTransform.Microsoft.Alpha(Opacity=0)';
+
+  //   -webkit-transition: opacity 0s linear .15s;
+  //   -moz-transition: opacity 0s linear .15s;
+  //   -o-transition: opacity 0s linear .15s;
+  //   -ms-transition: opacity 0s linear .15s;
+  //   transition: opacity 0s linear .15s;
+  // }
+
+  // .list-menu.vertical li {
+  //   float: none;
+  //   padding: 0.4em 0;
+  //   margin: 0;
+  //   border-width: 0 0 1px 0;
+  // }
+
+  // li.parent {
+  //   position: relative;
+
+  //   &:hover {
+  //     ul {
+  //       overflow: visible;
+  //       height: auto;
+  //       opacity: 1;
+  //       z-index: 101;
+
+  //       li {
+  //         padding: 0;
+  //       }
+  //     }
+  //   }
+  // }
+}

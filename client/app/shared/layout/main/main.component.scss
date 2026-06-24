@@ -1,0 +1,26 @@
+// @import "../../theme/_styles.scss";
+
+article {
+  display: block;
+}
+
+.band {
+  line-height: 1.6;
+  width: 100%;
+}
+
+#main-content {
+  // background: #fff;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+#main.padding-top {
+  padding-top: 2.5em;
+}
+
+@media (min-width: 768px) {
+  #main.padding-top {
+    padding-top: 3.5em;
+  }
+}

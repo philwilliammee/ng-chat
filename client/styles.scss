@@ -1,0 +1,33 @@
+@use '@angular/material' as mat;
+@use './app/shared/theme/_variables.scss' as variables;
+@use './app/shared/theme/_palette.scss' as palette;
+@use './app/shared/theme/_typography.scss' as typography;
+@use './app/shared/theme/_styles' as styles;
+@use './app/shared/theme/_flex' as flex;
+@use './app/shared/theme/_spacing' as spacing;
+@use './app/shared/theme/_accessability' as accessability;
+
+@include mat.elevation-classes();
+@include mat.app-background();
+
+$styles-primary-color: mat.m2-define-palette(palette.$cu-theme-primary);
+$styles-accent-color: mat.m2-define-palette(palette.$cu-theme-secondary);
+$styles-warn-color: mat.m2-define-palette(mat.$m2-red-palette);
+
+$styles-theme: mat.m2-define-light-theme((
+  color: (
+    primary: $styles-primary-color,
+    accent: $styles-accent-color,
+    warn: $styles-warn-color,
+  ),
+  typography: typography.$custom-typography,
+));
+
+@include mat.all-component-themes($styles-theme);
+@include mat.typography-hierarchy(typography.$custom-typography);
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+}

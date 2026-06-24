@@ -1,0 +1,17 @@
+{
+  "name": "@ng-chat/ui",
+  "version": "0.1.0",
+  "description": "Angular signals chat UI components for the Vercel AI SDK UI Message Stream Protocol.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/public-api.ts"
+  },
+  "peerDependencies": {
+    "@ai-sdk/angular": "^2.0.0",
+    "@angular/core": "^21.0.0",
+    "@angular/common": "^21.0.0",
+    "@angular/material": "^21.0.0",
+    "ai": "^6.0.0"
+  }
+}

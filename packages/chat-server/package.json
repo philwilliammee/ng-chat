@@ -1,0 +1,16 @@
+{
+  "name": "@ng-chat/server",
+  "version": "0.1.0",
+  "description": "Hono router factory + agentic tool loop for ng-chat, built on the Vercel AI SDK.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@ai-sdk/openai-compatible": "^2.0.0",
+    "ai": "^6.0.0",
+    "hono": "^4.7.0",
+    "zod": "^3.25.0"
+  }
+}
