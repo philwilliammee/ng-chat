@@ -132,20 +132,92 @@ stateDiagram-v2
         </p>
       </section>
 
+      <!-- File Upload -->
+      <section class="doc-section">
+        <h2>File Upload</h2>
+        <p>
+          The chat composer accepts images, PDFs, and text files alongside the message text.
+          Files are encoded client-side and sent inline as base64 <code>FileUIPart</code> objects
+          — no separate upload endpoint is needed.
+        </p>
+
+        <h3>Entry points</h3>
+        <table class="info-table">
+          <thead><tr><th>Method</th><th>Behaviour</th></tr></thead>
+          <tbody>
+            <tr><td>Attach button (📎)</td><td>Opens native file picker; accepts all supported types</td></tr>
+            <tr><td>Drag-and-drop</td><td>Drop files onto the composer; border highlights on drag-over</td></tr>
+            <tr><td>Paste</td><td>Ctrl/Cmd+V with image data on clipboard (screenshots, copy from browser)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Limits &amp; accepted types</h3>
+        <table class="info-table">
+          <thead><tr><th>Type</th><th>MIME types</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Images</td><td><code>image/png</code> <code>image/jpeg</code> <code>image/gif</code> <code>image/webp</code></td><td>Resized client-side to ≤ 1568 px before encoding (Anthropic vision limit)</td></tr>
+            <tr><td>PDF</td><td><code>application/pdf</code></td><td>Passed as-is; Anthropic natively supports document blocks</td></tr>
+            <tr><td>Text</td><td><code>text/plain</code> <code>text/csv</code> <code>text/markdown</code> <code>text/html</code></td><td>Base64-encoded and sent with MIME type</td></tr>
+          </tbody>
+        </table>
+        <p>Max <strong>5 files</strong> per message · <strong>10 MB</strong> per file. Attach button disables at cap.</p>
+
+        <h3>Transport</h3>
+        <p>
+          Files travel as <code>FileUIPart[]</code> in the AI SDK's standard JSON message body —
+          no <code>multipart/form-data</code> endpoint required. The server's
+          <code>convertToModelMessages()</code> call maps them to provider-level file/image parts
+          automatically.
+        </p>
+
+        <h3>Rendering in history</h3>
+        <p>
+          Sent files appear above the message text in the user bubble:
+          image files as thumbnails (<code>max 240 × 180 px</code>), PDF and text files as labelled chips.
+        </p>
+      </section>
+
+      <!-- Markdown Rendering -->
+      <section class="doc-section">
+        <h2>Markdown Rendering</h2>
+        <p>
+          Assistant messages are rendered via <code>MarkdownPipe</code>
+          (<code>packages/chat-ui/src/lib/pipes/markdown.pipe.ts</code>) using
+          <a href="https://marked.js.org" target="_blank" rel="noopener">marked</a> in GFM mode.
+        </p>
+
+        <h3>Supported syntax</h3>
+        <table class="info-table">
+          <thead><tr><th>Feature</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>Tables</td><td><code>| col | col |</code> with separator row</td></tr>
+            <tr><td>Fenced code blocks</td><td><code>&#96;&#96;&#96;lang … &#96;&#96;&#96;</code></td></tr>
+            <tr><td>Inline code</td><td><code>&#96;code&#96;</code></td></tr>
+            <tr><td>Bold / italic</td><td><code>**bold**</code> / <code>*italic*</code></td></tr>
+            <tr><td>Headings</td><td><code># h1</code> through <code>### h3</code></td></tr>
+            <tr><td>Unordered lists</td><td><code>- item</code> or <code>* item</code></td></tr>
+            <tr><td>Links</td><td><code>[text](url)</code></td></tr>
+            <tr><td>Strikethrough</td><td><code>~~text~~</code></td></tr>
+            <tr><td>Task lists</td><td><code>- [ ] todo</code> / <code>- [x] done</code></td></tr>
+          </tbody>
+        </table>
+        <p>
+          Output is trusted via <code>DomSanitizer.bypassSecurityTrustHtml()</code>
+          — suitable for controlled AI model output.
+        </p>
+      </section>
+
       <!-- Development -->
       <section class="doc-section">
         <h2>Development</h2>
 
         <h3>Start all services</h3>
         <div class="code-block">
-          <div class="code-label">Terminal 1 — Hono server</div>
-          <pre>npm run server</pre>
-          <div class="code-label">Terminal 2 — Angular dev server</div>
-          <pre>npm start</pre>
+          <pre>npm run dev</pre>
         </div>
         <p>
-          The Angular dev server runs on <code>:4202</code> and proxies
-          <code>/api/*</code> to the Hono server on <code>:4315</code> via
+          Starts the Angular dev server on <code>:4200</code> and the Hono server on <code>:4315</code>
+          concurrently. Angular proxies <code>/api/*</code> to <code>:4315</code> via
           <code>proxy.conf.json</code>.
         </p>
 

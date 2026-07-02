@@ -72,10 +72,19 @@ Both levels of cloning are required:
 import { NgChat } from './ng-chat-state';
 import { DefaultChatTransport } from 'ai';
 
-this.chat = new NgChat({ transport: new DefaultChatTransport({ api: this.api() }) });
+this.chat = new NgChat({
+  id: this.conversationId(),           // optional stable id
+  messages: this.messages(),           // optional seed messages
+  transport: new DefaultChatTransport({ api: this.api() }),
+  onFinish: ({ messages }) => {
+    this.finish.emit({ messages, id: this.chat.id });
+  },
+});
 ```
 
 `NgChat` extends `AbstractChat` and wires in `NgChatState` automatically — no other setup needed.
+
+`sendMessage` accepts `files: FileUIPart[]` alongside `text` — the shallow-clone in `replaceMessage` already handles `FileUIPart` parts because it spreads `parts.map(p => ({ ...p }))` generically.
 
 ## Streaming data flow
 
