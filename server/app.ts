@@ -36,6 +36,7 @@ const systemPrompt = [
   'When a task matches a known skill, call the use_skill tool to load its instructions before proceeding.',
   'Use read_file to read specific files and search_files to find relevant content by keyword.',
   'Use write_file to save notes, facts, or summaries to the memories/ directory.',
+  'If the user references past context or preferences, call use_skill with "memory" to check saved memories.',
   'At the end of a session call the close skill (use_skill: close) to persist what you learned.',
   'When the user asks you to think deeply, reason carefully, or analyze complex topics,',
   'use your full reasoning capacity before and after any tool calls.',

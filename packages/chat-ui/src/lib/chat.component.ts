@@ -339,6 +339,11 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  /** Programmatically send a user message (e.g. a system notification after a background action). */
+  injectUserMessage(text: string): void {
+    if (this.chat) this.chat.sendMessage({ text });
+  }
+
   protected downloadConversation(): void {
     const messages = this.chat?.messages;
     if (!messages?.length) return;

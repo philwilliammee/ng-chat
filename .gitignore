@@ -4,3 +4,7 @@ dist
 .env
 *.log
 .DS_Store
+
+# Memory files are runtime-generated and user-specific; folder kept via .gitkeep
+skills/memories/*
+!skills/memories/.gitkeep

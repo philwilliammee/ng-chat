@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ChatComponent } from '@ng-chat/ui';
 import { ChatHistoryService, ChatSidebarComponent } from '@ng-chat/storage';
@@ -63,6 +63,8 @@ export class ChatPageComponent implements OnInit {
   protected readonly contextLimit = signal(200_000);
   protected readonly closingConversationId = signal<string | null>(null);
 
+  private readonly chatComp = viewChild(ChatComponent);
+
   private readonly http = inject(HttpClient);
 
   async onCloseConversation(id: string): Promise<void> {
@@ -70,9 +72,15 @@ export class ChatPageComponent implements OnInit {
     if (!conv?.messages.length || this.closingConversationId()) return;
     this.closingConversationId.set(id);
     try {
-      await firstValueFrom(
+      const result = await firstValueFrom(
         this.http.post<{ filesWritten: string[] }>('/api/chat/close', { messages: conv.messages }),
       );
+      if (id === this.history.activeId() && result.filesWritten?.length) {
+        const files = result.filesWritten.join(', ');
+        this.chatComp()?.injectUserMessage(
+          `[Memories saved: ${files}. You can load them with the memory skill.]`,
+        );
+      }
     } catch (e) {
       console.error('Memory save failed', e);
     } finally {
