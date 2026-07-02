@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { ChatComponent } from '@ng-chat/ui';
 import { ChatHistoryService, ChatSidebarComponent } from '@ng-chat/storage';
 import { ThinkingPreferenceService } from '../../services/thinking-preference.service';
@@ -20,8 +21,10 @@ import { HttpClient } from '@angular/common/http';
           (newConversation)="history.newConversation()"
           (selectConversation)="history.selectConversation($event)"
           (deleteConversation)="history.deleteConversation($event)"
+          (closeConversation)="onCloseConversation($event)"
           (importConversation)="history.importConversation($event)"
-          (toggleCollapse)="sidebarCollapsed.update(v => !v)" />
+          (toggleCollapse)="sidebarCollapsed.update(v => !v)"
+          [closingConversationId]="closingConversationId()" />
       </div>
       <div class="chat-panel">
         <ng-chat
@@ -58,8 +61,24 @@ export class ChatPageComponent implements OnInit {
   protected readonly history = inject(ChatHistoryService);
   protected readonly sidebarCollapsed = signal(false);
   protected readonly contextLimit = signal(200_000);
+  protected readonly closingConversationId = signal<string | null>(null);
 
   private readonly http = inject(HttpClient);
+
+  async onCloseConversation(id: string): Promise<void> {
+    const conv = this.history.conversations().find(c => c.id === id);
+    if (!conv?.messages.length || this.closingConversationId()) return;
+    this.closingConversationId.set(id);
+    try {
+      await firstValueFrom(
+        this.http.post<{ filesWritten: string[] }>('/api/chat/close', { messages: conv.messages }),
+      );
+    } catch (e) {
+      console.error('Memory save failed', e);
+    } finally {
+      this.closingConversationId.set(null);
+    }
+  }
 
   async ngOnInit(): Promise<void> {
     await this.history.init();

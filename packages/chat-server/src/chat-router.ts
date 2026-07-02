@@ -8,6 +8,8 @@ import {
 } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { encode } from 'gpt-tokenizer';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { ToolRegistry } from './tools/registry.js';
 
 function countTokens(text: string): number {
@@ -222,6 +224,61 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
       });
 
       return c.json({ summary });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      return c.json({ error: message }, 500);
+    }
+  });
+
+  // Close endpoint — runs the close skill to extract and persist memories from a conversation.
+  app.post('/close', async (c) => {
+    try {
+      const body = await c.req.json<{ messages: UIMessage[] }>();
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+
+      // Load close.md from the content directory (falls back to a built-in prompt if missing).
+      let closeInstruction = 'Extract the key facts, preferences, and decisions from this conversation. Save each distinct topic as a markdown file under memories/ using write_file. Update memories/_index.md with one-line entries for any new files.';
+      try {
+        const closePath = resolve(config.contentDir ?? './skills', 'close.md');
+        closeInstruction = readFileSync(closePath, 'utf-8');
+      } catch { /* no close.md — use built-in fallback */ }
+
+      const transcript = messages
+        .map(m => {
+          const textParts = (m.parts ?? []) as Array<Record<string, unknown>>;
+          const text = textParts
+            .filter(p => p['type'] === 'text' && typeof p['text'] === 'string')
+            .map(p => p['text'] as string)
+            .join(' ');
+          return text ? `${m.role}: ${text}` : null;
+        })
+        .filter(Boolean)
+        .join('\n');
+
+      const provider = getProvider(undefined);
+      const result = await generateText({
+        model: provider(config.defaultModel),
+        messages: [
+          {
+            role: 'user',
+            content: `${closeInstruction}\n\n## Conversation\n\n${transcript}`,
+          },
+        ],
+        tools: registry.toAiTools(),
+        stopWhen: stepCountIs(maxRounds),
+      });
+
+      const filesWritten: string[] = [];
+      for (const step of result.steps) {
+        for (const tr of (step.toolResults as unknown as Array<{ toolName: string; output: unknown }>) ?? []) {
+          if (tr.toolName === 'write_file') {
+            const out = tr.output as { path?: string };
+            if (out?.path) filesWritten.push(out.path);
+          }
+        }
+      }
+
+      return c.json({ filesWritten });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal server error';
       return c.json({ error: message }, 500);

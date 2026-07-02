@@ -79,6 +79,16 @@ import type { Conversation } from './types';
                 <span class="conv-title">{{ conv.title }}</span>
                 <span class="conv-date">{{ conv.updatedAt | date: 'shortDate' }}</span>
               </div>
+              @if (conv.messages.length > 0) {
+                <button
+                  class="conv-close icon-btn"
+                  [attr.aria-label]="closingConversationId() === conv.id ? 'Saving memories…' : 'Save memories and close'"
+                  [title]="closingConversationId() === conv.id ? 'Saving memories…' : 'Save memories'"
+                  [disabled]="closingConversationId() === conv.id"
+                  (click)="$event.stopPropagation(); closeConversation.emit(conv.id)">
+                  <mat-icon>{{ closingConversationId() === conv.id ? 'hourglass_empty' : 'archive' }}</mat-icon>
+                </button>
+              }
               <button
                 class="conv-delete icon-btn"
                 aria-label="Delete conversation"
@@ -212,12 +222,19 @@ import type { Conversation } from './types';
       margin-top: 1px;
     }
 
-    .conv-delete {
+    .conv-close, .conv-delete {
       opacity: 0;
       transition: opacity 0.12s;
     }
-    .conv-delete mat-icon { font-size: 16px; height: 16px; width: 16px; }
+    .conv-close mat-icon, .conv-delete mat-icon { font-size: 16px; height: 16px; width: 16px; }
+    .conv-item:hover .conv-close,
     .conv-item:hover .conv-delete { opacity: 0.7; }
+    .conv-close:hover {
+      opacity: 1 !important;
+      background: var(--mat-sys-secondary-container, #e8def8);
+      color: var(--mat-sys-on-secondary-container, #1d192b);
+    }
+    .conv-close:disabled { opacity: 0.5 !important; cursor: default; }
     .conv-delete:hover {
       opacity: 1 !important;
       background: var(--mat-sys-error-container, #f9dedc);
@@ -240,8 +257,11 @@ export class ChatSidebarComponent {
   readonly newConversation = output<void>();
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();
+  readonly closeConversation = output<string>();
   readonly toggleCollapse = output<void>();
   readonly importConversation = output<Conversation>();
+  /** Id of the conversation currently being closed (shows spinner on that item). */
+  readonly closingConversationId = input<string | null>(null);
 
   protected readonly searchQuery = signal('');
   protected readonly importFileRef = viewChild.required<ElementRef<HTMLInputElement>>('importFileInput');
