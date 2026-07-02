@@ -12,6 +12,7 @@ an existing app, or pointed at any compatible endpoint.
 - **Standard protocol** — no bespoke wire format. Uses the AI SDK data stream (SSE).
 - **Agentic tool loop** — the model can call tools to take actions and fetch data.
 - **Reasoning** — streamed chain-of-thought rendered in a collapsible "Thought for Ns" panel; thinking level (off / low / medium / high) is configurable per-user in Settings.
+- **Conversation history** — IndexedDB-backed multi-conversation storage via `@ng-chat/storage`; collapsible sidebar included.
 - **Conversation download** — export any chat session as a JSON file for persistence or debugging.
 - **Pluggable tools** — register AI SDK `tool()`s; ships with a default `use_skill`
   (document-based memory) and a `get_time` demo tool.
@@ -72,8 +73,33 @@ Frontend — drop the component into any standalone Angular app:
 
 ```ts
 import { ChatComponent } from '@ng-chat/ui';
-// <ng-chat api="/api/chat" />
 ```
+
+```html
+<!-- minimal -->
+<ng-chat api="/api/chat" />
+
+<!-- with conversation history (see @ng-chat/storage below) -->
+<ng-chat
+  api="/api/chat"
+  [messages]="history.activeMessages()"
+  [conversationId]="history.activeId() ?? undefined"
+  (finish)="history.saveConversation($event)" />
+```
+
+**`<ng-chat>` inputs / outputs**
+
+| Name | Type | Description |
+|------|------|-------------|
+| `api` | `string` | Streaming endpoint URL (default `/api/chat`) |
+| `model` | `string` | Model id forwarded in the POST body |
+| `thinkingLevel` | `string` | `disabled \| low \| medium \| high` |
+| `messages` | `UIMessage[]` | Seed or replace the message list (e.g. loading a stored conversation) |
+| `conversationId` | `string` | Stable conversation ID passed through to `(finish)` |
+| `placeholder` | `string` | Textarea placeholder text |
+| `emptyTitle` | `string` | Heading shown when no messages exist |
+| `emptyHint` | `string` | Sub-text shown when no messages exist |
+| `(finish)` | `{ messages, id }` | Fires after each complete assistant turn — use to persist the conversation |
 
 Backend — mount the router into any Hono app:
 
@@ -90,6 +116,45 @@ app.route('/api/chat', createChatRouter({
 
 Because both sides speak the standard protocol, the client also works directly
 against any other AI-SDK-compatible endpoint.
+
+## Adding conversation history
+
+`@ng-chat/storage` provides IndexedDB-backed multi-conversation storage with no server required.
+
+```ts
+import { ChatHistoryService, ChatSidebarComponent } from '@ng-chat/storage';
+import { ChatComponent } from '@ng-chat/ui';
+
+@Component({
+  imports: [ChatComponent, ChatSidebarComponent],
+  template: `
+    <ng-chat-sidebar
+      [conversations]="history.conversations()"
+      [activeId]="history.activeId()"
+      [collapsed]="sidebarCollapsed()"
+      (newConversation)="history.newConversation()"
+      (selectConversation)="history.selectConversation($event)"
+      (deleteConversation)="history.deleteConversation($event)"
+      (toggleCollapse)="sidebarCollapsed.update(v => !v)" />
+
+    <ng-chat
+      api="/api/chat"
+      [messages]="history.activeMessages()"
+      [conversationId]="history.activeId() ?? undefined"
+      (finish)="history.saveConversation($event)" />
+  `,
+})
+export class ChatPageComponent implements OnInit {
+  readonly history = inject(ChatHistoryService);
+  readonly sidebarCollapsed = signal(false);
+
+  async ngOnInit() { await this.history.init(); }
+}
+```
+
+`ChatHistoryService` stores `Conversation` records (id, title, messages, timestamps) in the browser's IndexedDB (`ng-chat-db`). It exposes Angular signals — `conversations`, `activeId`, `activeMessages` — so templates bind reactively with no boilerplate.
+
+To use a different backend (server REST, localStorage, etc.) skip `@ng-chat/storage` entirely and wire `[messages]` and `(finish)` directly to your own service. See [`docs/conversation-history-strategies.md`](docs/conversation-history-strategies.md) for a full comparison of storage approaches.
 
 ## Adding a tool
 
