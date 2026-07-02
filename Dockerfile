@@ -3,8 +3,10 @@ FROM node:24-alpine AS build
 
 WORKDIR /app
 
-# Install dependencies (layer caching)
+# Install dependencies (layer caching — workspace members must be present for lockfile resolution)
 COPY package.json package-lock.json ./
+COPY packages/chat-server/package.json ./packages/chat-server/
+COPY packages/chat-ui/package.json ./packages/chat-ui/
 RUN npm ci
 
 # Copy source and build the Angular client (static assets only)

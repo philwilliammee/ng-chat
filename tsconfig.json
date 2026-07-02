@@ -13,7 +13,8 @@
     "paths": {
       "@server/*": ["./server/*"],
       "@ng-chat/server": ["./packages/chat-server/src/index.ts"],
-      "@ng-chat/ui": ["./packages/chat-ui/src/public-api.ts"]
+      "@ng-chat/ui": ["./packages/chat-ui/src/public-api.ts"],
+      "@ng-chat/storage": ["./packages/chat-storage/src/public-api.ts"]
     }
   },
   "angularCompilerOptions": {

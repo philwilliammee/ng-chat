@@ -54,7 +54,13 @@ export class NgChatState<M extends UIMessage = UIMessage>
     });
   };
 
-  snapshot = <T>(thing: T): T => structuredClone(thing) as T;
+  snapshot = <T>(thing: T): T => {
+    try {
+      return structuredClone(thing) as T;
+    } catch {
+      return thing;
+    }
+  };
 }
 
 /** Concrete AbstractChat subclass that wires in NgChatState. */

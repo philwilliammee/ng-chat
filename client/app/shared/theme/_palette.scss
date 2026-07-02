@@ -1,8 +1,4 @@
-/*
-* http://mcg.mbitson.com/#!?cutheme=%232d668e&themename=mcgtheme
-* default palettes - https://github.com/angular/components/blob/main/src/material/core/theming/_palette.scss
-* For use in src/lib/core/theming/_palette.scss
-*/
+/* Material palette — customize for your brand */
 
 $dark-primary-text: rgba(black, 0.87);
 $light-primary-text: white;
@@ -40,7 +36,6 @@ $cu-theme-secondary: (
     )
 );
 
-/* For use in src/lib/core/theming/_palette.scss */
 $cu-theme-primary: (
     50 : #e6edf1,
     100 : #c0d1dd,

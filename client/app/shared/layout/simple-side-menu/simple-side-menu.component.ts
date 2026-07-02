@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, input, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
@@ -33,12 +33,14 @@ import { AppRoute } from '../../../app.routes';
       >
         <mat-toolbar class="sidebar-logo">
           <a routerLink="/">
-            <img
-              alt="Cornell University"
-              [src]="svgIconUrl()"
-              [style.height]="imgHeight()"
-              [style.width]="'auto'"
-            />
+            @if (svgIconUrl()) {
+              <img
+                alt="Logo"
+                [src]="svgIconUrl()"
+                [style.height]="imgHeight()"
+                [style.width]="'auto'"
+              />
+            }
             {{ title() }}
           </a>
         </mat-toolbar>
@@ -91,15 +93,22 @@ import { AppRoute } from '../../../app.routes';
 })
 export class SimpleSideMenuComponent implements OnInit {
   readonly routes = input.required<AppRoute[]>();
-  readonly title = input('Admin Toolbar');
+  readonly title = input('');
   readonly showToggle = input(true);
-  readonly svgIconUrl = input(
-    '/assets/images/cornell/bold_cornell_seal_simple_white.svg',
-  ); // 'https://cdn.jsdelivr.net/gh/CU-CommunityApps/cwd_base/images/cornell/bold_cornell_seal_simple_white.svg
+  readonly svgIconUrl = input('');
   readonly imgHeight = input('45px');
-  mode = signal<MatDrawerMode>('side'); // 'over' | 'push' | 'side'
+  mode = signal<MatDrawerMode>('side');
   opened = signal(true);
-  readonly isMobileLayout = computed(() => window.innerWidth <= 768);
+
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly windowWidth = signal(window.innerWidth);
+  readonly isMobileLayout = computed(() => this.windowWidth() <= 768);
+
+  constructor() {
+    const handler = () => this.windowWidth.set(window.innerWidth);
+    window.addEventListener('resize', handler);
+    this.destroyRef.onDestroy(() => window.removeEventListener('resize', handler));
+  }
 
   ngOnInit(): void {
     const savedToggleState = localStorage.getItem('simple-side-menu-toggle');

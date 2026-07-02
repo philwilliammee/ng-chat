@@ -25,12 +25,13 @@ No test suite is configured. Type-check with `npm run check` before committing.
 
 ## Architecture
 
-This is a monorepo with two internal packages consumed as TypeScript source (no separate build step) via tsconfig path aliases:
+This is a monorepo with three internal packages consumed as TypeScript source (no separate build step) via tsconfig path aliases:
 
 | Alias | Source | Role |
 |---|---|---|
 | `@ng-chat/server` | `packages/chat-server/src/index.ts` | Hono router factory + tool registry |
 | `@ng-chat/ui` | `packages/chat-ui/src/public-api.ts` | Angular signals chat components |
+| `@ng-chat/storage` | `packages/chat-storage/src/public-api.ts` | IndexedDB conversation history (`ChatHistoryService`, `ChatSidebarComponent`) |
 
 The `server/` and `client/` directories are the demo app wiring these packages together. The two sides communicate exclusively via the **Vercel AI SDK UI Message Stream Protocol** (SSE), so either can be replaced independently.
 
@@ -39,8 +40,9 @@ The `server/` and `client/` directories are the demo app wiring these packages t
 - `createChatRouter(config)` — builds a Hono sub-app with two endpoints:
   - `GET /config` — returns model, context limit, and registered tool names to the client
   - `POST /` — streaming endpoint; calls `streamText` with an agentic tool loop (`stopWhen: stepCountIs(maxRounds)`) and returns a UI Message Stream via SSE
+- `ChatRouterConfig.defaultThinkingLevel` — server-side fallback thinking level (`'disabled' | 'low' | 'medium' | 'high'`); the client overrides it per-request via the `thinkingLevel` body field. Uses `transformRequestBody` to inject `thinking: { type: 'enabled', budget_tokens: N }` directly into the raw gateway request (required because `createOpenAICompatible` does not forward `providerOptions.anthropic`).
 - `ToolRegistry` — a `Map<string, Tool>` wrapper; chain `.register(name, tool)` calls; pass to `createChatRouter` as `tools`
-- Built-in tools: `getTimeTool` (demo) and `createUseSkillTool` (file-backed skill loader from `skills/*.md`)
+- Built-in tools: `getTimeTool` (demo) and `createUseSkillTool` (async — pre-reads skill names at startup and embeds them in the tool description to prevent speculative listing calls)
 
 The demo server (`server/app.ts`) mounts the chat router at `/api/chat` and serves the built Angular client from `dist/client/browser`.
 
@@ -49,7 +51,10 @@ The demo server (`server/app.ts`) mounts the chat router at `/api/chat` and serv
 All components are standalone, OnPush, signals-based (Angular 21). No NgModules anywhere.
 
 - `<ng-chat api="/api/chat">` — the top-level chat surface; backed by `NgChat` (see below)
-- `<ng-chat-message>` — renders message parts: `text` (user plain / assistant markdown), `reasoning` (collapsible panel), `tool-*` / `dynamic-tool` (delegated to `<ng-chat-tool-call>`)
+  - `[thinkingLevel]` input — `'disabled' | 'low' | 'medium' | 'high'`; forwarded in the POST body so the server can activate extended thinking per-turn
+  - Download button (sticky toolbar) — exports the current conversation as a JSON file
+- `<ng-chat-message>` — renders message parts: `text` (user plain / assistant markdown), `reasoning` (delegated to `<ng-chat-reasoning-panel>`), `tool-*` / `dynamic-tool` (delegated to `<ng-chat-tool-call>`)
+- `<ng-chat-reasoning-panel>` — collapsible panel for reasoning parts; shows "Thinking…" with a spinner during streaming and "Thought for Ns" when done
 - `<ng-chat-input>` — textarea with send/stop controls
 - `MarkdownPipe` — sanitized HTML from markdown text parts
 
@@ -67,10 +72,11 @@ Copy `.env.example` to `.env` and set `GATEWAY_API_KEY`. Key vars:
 
 | Var | Default |
 |---|---|
-| `GATEWAY_BASE_URL` | `https://api.ai.it.cornell.edu/v1` |
+| `GATEWAY_BASE_URL` | `https://api.openai.com/v1` |
 | `GATEWAY_API_KEY` | — (required) |
-| `CHAT_MODEL` | `anthropic.claude-3-7-sonnet` |
+| `CHAT_MODEL` | `gpt-4o-mini` |
 | `MAX_TOOL_ROUNDS` | `8` |
 | `SKILLS_DIR` | `./skills` |
+| `THINKING_DEFAULT_LEVEL` | `disabled` |
 
 Dev mode proxies Angular's `/api/*` to `localhost:4315` via `proxy.conf.json`.

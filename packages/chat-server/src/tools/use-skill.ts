@@ -14,7 +14,8 @@ async function listSkills(skillsDir: string): Promise<string[]> {
     return entries
       .filter((f) => f.toLowerCase().endsWith('.md'))
       .map((f) => f.replace(/\.md$/i, ''));
-  } catch {
+  } catch (err) {
+    console.error('[use-skill] Failed to read skills directory:', err);
     return [];
   }
 }
@@ -25,29 +26,34 @@ async function listSkills(skillsDir: string): Promise<string[]> {
  * This is the default "use_skill" tool every ng-chat agent ships with. It lets
  * the model pull in focused guidance (a "skill") from the filesystem instead of
  * carrying everything in the system prompt. Simple, file-backed, no RAG.
+ *
+ * Skills are pre-listed in the tool description at startup so the model never
+ * needs a speculative "list" call — it already knows what's available.
  */
-export function createUseSkillTool(options: UseSkillOptions) {
+export async function createUseSkillTool(options: UseSkillOptions) {
   const skillsDir = resolve(options.skillsDir);
+
+  // Read skill names once at startup and bake them into the description.
+  const available = await listSkills(skillsDir);
+  const skillList = available.length
+    ? `Available skills: ${available.join(', ')}.`
+    : 'No skills are currently loaded.';
 
   return tool({
     description:
-      'Load the full instructions for a named skill (a focused set of guidance or a procedure). ' +
-      'Call this before performing a task that matches a skill. Omit "name" to list available skills.',
+      `Load the full instructions for a named skill. ${skillList} ` +
+      'Only call this when the user request clearly matches one of the listed skill names. ' +
+      'Do NOT call this for general knowledge, analysis, or questions you can answer directly.',
     inputSchema: z.object({
       name: z
         .string()
-        .optional()
-        .describe('The skill to load. Leave empty to list all available skills.'),
+        .describe('The skill to load. Must be one of the listed available skills.'),
     }),
     execute: async ({ name }) => {
-      const available = await listSkills(skillsDir);
-      if (!name) {
-        return { available };
-      }
-
+      const current = await listSkills(skillsDir);
       const safe = name.replace(/[^a-z0-9_-]/gi, '');
-      if (!safe || !available.includes(safe)) {
-        return { error: `Unknown skill "${name}".`, available };
+      if (!safe || !current.includes(safe)) {
+        return { error: `Unknown skill "${name}".`, available: current };
       }
 
       try {

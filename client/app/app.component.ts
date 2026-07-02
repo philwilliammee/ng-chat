@@ -1,9 +1,10 @@
-import { Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { AdminLayoutComponent } from './shared/layout/admin-layout/admin-layout.component';
 import { AppRoute } from './app.routes';
 import { AdminRoutes } from './admin.routes';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'app-root',
   imports: [
     AdminLayoutComponent,

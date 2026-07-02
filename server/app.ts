@@ -19,15 +19,17 @@ app.get('/health', (c) =>
   c.json({ status: 200, data: { name: 'ng-chat', uptime: process.uptime() } }),
 );
 
-// --- Chat: agentic tool loop over the Cornell AI Gateway ---
+// --- Chat: agentic tool loop ---
 const tools = new ToolRegistry()
-  .register('use_skill', createUseSkillTool({ skillsDir: config.skillsDir }))
+  .register('use_skill', await createUseSkillTool({ skillsDir: config.skillsDir }))
   .register('get_time', getTimeTool);
 
 const systemPrompt = [
   'You are a helpful assistant embedded in the ng-chat base template.',
   'You can call tools to take actions and fetch data.',
   'When a task matches a known skill, call the use_skill tool to load its instructions before proceeding.',
+  'When the user asks you to think deeply, reason carefully, or analyze complex topics,',
+  'use your full reasoning capacity before and after any tool calls.',
 ].join(' ');
 
 app.route(
@@ -40,7 +42,8 @@ app.route(
     maxToolRounds: config.maxToolRounds,
     systemPrompt,
     tools,
-    providerName: 'cornell-gateway',
+    providerName: 'ai-gateway',
+    defaultThinkingLevel: config.thinkingDefaultLevel,
   }),
 );
 

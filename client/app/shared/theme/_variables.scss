@@ -1,14 +1,13 @@
-// https://github.dev/CU-CommunityApps/cwd_framework_lite/tree/main/sass/components
 $cwd-container-fluid-max-width: 1280px;
 
 // @todo use css variables instead of scss variables
 :root {
-  --color-primary: #2d668e; // Cornell blue — M2 primary palette 500
-  --color-accent: #b31b1b; // Cornell red  — M2 accent palette 500
+  --color-primary: #2d668e;
+  --color-accent: #b31b1b;
   --color-on-primary: #fff;
   --color-border: #e0e0e0;
-  --color-warning: #F8981D;  // Cornell brand orange
-  --color-on-warning: #222222; // Cornell dark gray — accessible on warning background
+  --color-warning: #F8981D;
+  --color-on-warning: #222222;
 }
 
 $grid-gutter-width: 30px;

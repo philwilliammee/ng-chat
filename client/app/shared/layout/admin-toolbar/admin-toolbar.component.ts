@@ -1,15 +1,16 @@
-import { Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatToolbarModule } from '@angular/material/toolbar';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'lib-admin-toolbar',
   imports: [MatToolbarModule, MatIconModule, MatButtonModule],
   template: `
     <mat-toolbar>
       @if (showToggle()) {
-        <button mat-icon-button (click)="toggleSidenav.emit()">
+        <button mat-icon-button aria-label="Toggle navigation" (click)="toggleSidenav.emit()">
           <mat-icon>menu</mat-icon>
         </button>
       }

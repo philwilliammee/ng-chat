@@ -1,0 +1,16 @@
+{
+  "name": "@ng-chat/storage",
+  "version": "0.1.0",
+  "description": "IndexedDB conversation history adapter for ng-chat.",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/public-api.ts"
+  },
+  "peerDependencies": {
+    "@angular/core": "^21.0.0",
+    "@angular/common": "^21.0.0",
+    "@angular/material": "^21.0.0",
+    "ai": "^6.0.0"
+  }
+}

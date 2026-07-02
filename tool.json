@@ -3,7 +3,7 @@
   "name": "NG Chat",
   "description": "Open-source Angular + Hono agent chat base template (Vercel AI SDK UI Message Stream Protocol)",
   "port": 4315,
-  "category": "platform",
+  "category": "template",
   "entry": "server/index.ts",
   "dev": "npm run run:local"
 }

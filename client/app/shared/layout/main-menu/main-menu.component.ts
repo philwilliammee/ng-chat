@@ -1,12 +1,13 @@
 import { MatButtonModule } from '@angular/material/button';
 import { MatMenuModule } from '@angular/material/menu';
-import { Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { RouterModule, Routes } from '@angular/router';
 
 // This component implements the main menu.
 // As outlined in https://www.w3.org/WAI/ARIA/apg/example-index/menubar/menubar-navigation.html
 @Component({
+  changeDetection: ChangeDetectionStrategy.OnPush,
   selector: 'lib-main-menu',
   template: `
     <nav

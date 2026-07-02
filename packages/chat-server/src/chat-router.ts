@@ -25,11 +25,28 @@ export interface ChatRouterConfig {
   tools?: ToolRegistry;
   /** Provider label (cosmetic). */
   providerName?: string;
+  /**
+   * Default thinking level when the request body doesn't specify one.
+   * 'disabled' (default) | 'low' | 'medium' | 'high'
+   */
+  defaultThinkingLevel?: string;
 }
 
 interface ChatRequestBody {
   messages: UIMessage[];
   model?: string;
+  /** Thinking level requested by the client: 'disabled' | 'low' | 'medium' | 'high' */
+  thinkingLevel?: string;
+}
+
+const THINKING_BUDGETS: Record<string, number> = {
+  low: 2_000,
+  medium: 8_000,
+  high: 16_000,
+};
+
+function thinkingBudgetFor(level: string | undefined): number | undefined {
+  return level ? THINKING_BUDGETS[level] : undefined;
 }
 
 /**
@@ -41,11 +58,26 @@ interface ChatRequestBody {
  * AI-SDK-compatible client — including `@ng-chat/ui` — can consume it unchanged.
  */
 export function createChatRouter(config: ChatRouterConfig): Hono {
-  const provider = createOpenAICompatible({
+  const providerBase = {
     name: config.providerName ?? 'gateway',
     baseURL: config.baseURL,
     apiKey: config.apiKey,
-  });
+  };
+
+  // Default provider (no thinking). For requests that need thinking we create a
+  // fresh provider with transformRequestBody so the budget_tokens reach the gateway.
+  const defaultProvider = createOpenAICompatible(providerBase);
+
+  function getProvider(budgetTokens: number | undefined) {
+    if (!budgetTokens) return defaultProvider;
+    return createOpenAICompatible({
+      ...providerBase,
+      transformRequestBody: (body) => ({
+        ...body,
+        thinking: { type: 'enabled', budget_tokens: budgetTokens },
+      }),
+    });
+  }
 
   const registry = config.tools ?? new ToolRegistry();
   const maxRounds = config.maxToolRounds ?? 8;
@@ -62,26 +94,30 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   // Main streaming endpoint — returns a UI Message Stream (SSE).
   app.post('/', async (c) => {
-    const body = await c.req.json<ChatRequestBody>();
-    const messages = Array.isArray(body.messages) ? body.messages : [];
+    try {
+      const body = await c.req.json<ChatRequestBody>();
+      const messages = Array.isArray(body.messages) ? body.messages : [];
 
-    const result = streamText({
-      model: provider(body.model ?? config.defaultModel),
-      system: config.systemPrompt,
-      messages: await convertToModelMessages(messages),
-      tools: registry.toAiTools(),
-      stopWhen: stepCountIs(maxRounds),
-      abortSignal: c.req.raw.signal,
-    });
+      const thinkingLevel = body.thinkingLevel ?? config.defaultThinkingLevel;
+      const budgetTokens = thinkingBudgetFor(thinkingLevel);
+      const provider = getProvider(budgetTokens);
 
-    return result.toUIMessageStreamResponse({
-      sendReasoning: true,
-      headers: {
-        // Disable proxy buffering so SSE chunks flush immediately behind
-        // nginx / AWS ALB. Required for smooth streaming on Fargate.
-        'X-Accel-Buffering': 'no',
-      },
-    });
+      const result = streamText({
+        model: provider(body.model ?? config.defaultModel),
+        system: config.systemPrompt,
+        messages: await convertToModelMessages(messages),
+        tools: registry.toAiTools(),
+        stopWhen: stepCountIs(maxRounds),
+        abortSignal: c.req.raw.signal,
+      });
+
+      return result.toUIMessageStreamResponse({
+        sendReasoning: true,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      return c.json({ error: message }, 500);
+    }
   });
 
   return app;
