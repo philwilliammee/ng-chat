@@ -4,13 +4,15 @@ import {
   ElementRef,
   OnInit,
   afterEveryRender,
+  effect,
   input,
+  output,
   viewChild,
 } from '@angular/core';
 import { AbstractChat, DefaultChatTransport, type UIMessage } from 'ai';
 import { MatIconModule } from '@angular/material/icon';
 import { MessageComponent, type ChatMessageLike } from './components/message.component';
-import { MessageInputComponent } from './components/message-input.component';
+import { MessageInputComponent, type SendPayload } from './components/message-input.component';
 import { NgChat } from './ng-chat-state';
 
 /**
@@ -28,7 +30,7 @@ import { NgChat } from './ng-chat-state';
   imports: [MatIconModule, MessageComponent, MessageInputComponent],
   template: `
     <div class="chat">
-      <div #scroller class="scroll">
+      <div #scroller class="scroll" role="log" aria-live="polite" aria-label="Chat messages" aria-atomic="false">
         @if (chat && chat.messages.length > 0) {
           @for (message of chat.messages; track message.id) {
             <ng-chat-message
@@ -92,9 +94,18 @@ export class ChatComponent implements OnInit {
   readonly api = input('/api/chat');
   /** Optional model id sent in the request body for in-UI model switching. */
   readonly model = input<string | undefined>(undefined);
+  /** Thinking level forwarded to the server: 'disabled' | 'low' | 'medium' | 'high' */
+  readonly thinkingLevel = input<string | undefined>(undefined);
+  /** Seed or replace the message list (e.g. loading a stored conversation). */
+  readonly messages = input<UIMessage[]>([]);
+  /** Stable ID for the active conversation — passed through to onFinish. */
+  readonly conversationId = input<string | undefined>(undefined);
   readonly placeholder = input('Message the assistant…');
   readonly emptyTitle = input('Start a conversation');
   readonly emptyHint = input('Ask a question or give the assistant a task.');
+
+  /** Emits after each complete assistant turn with the full message array and conversation id. */
+  readonly finish = output<{ messages: UIMessage[]; id: string }>();
 
   protected chat!: AbstractChat<UIMessage>;
 
@@ -107,11 +118,24 @@ export class ChatComponent implements OnInit {
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
       if (nearBottom) el.scrollTop = el.scrollHeight;
     });
+
+    // Keep the NgChat message list in sync when the host switches conversations.
+    // Guards on this.chat because the effect may fire before ngOnInit on some
+    // edge-case re-render cycles.
+    effect(() => {
+      const msgs = this.messages();
+      if (this.chat) this.chat.messages = msgs;
+    });
   }
 
   ngOnInit(): void {
     this.chat = new NgChat<UIMessage>({
+      id: this.conversationId(),
+      messages: this.messages(),
       transport: new DefaultChatTransport({ api: this.api() }),
+      onFinish: ({ messages }) => {
+        this.finish.emit({ messages, id: this.conversationId() ?? this.chat.id });
+      },
     });
   }
 
@@ -131,9 +155,16 @@ export class ChatComponent implements OnInit {
     return !!last && last.id === id && last.role === 'assistant';
   }
 
-  protected onSend(text: string): void {
+  protected onSend(payload: SendPayload): void {
+    const extra: Record<string, unknown> = {};
     const model = this.model();
-    this.chat.sendMessage({ text }, model ? { body: { model } } : undefined);
+    if (model) extra['model'] = model;
+    const thinkingLevel = this.thinkingLevel();
+    if (thinkingLevel) extra['thinkingLevel'] = thinkingLevel;
+    this.chat.sendMessage(
+      { text: payload.text, files: payload.files.length ? payload.files : undefined },
+      Object.keys(extra).length ? { body: extra } : undefined,
+    );
   }
 
   protected onStop(): void {

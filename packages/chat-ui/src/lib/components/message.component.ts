@@ -3,12 +3,23 @@ import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MarkdownPipe } from '../pipes/markdown.pipe';
 import { ToolCallComponent, type ToolPart } from './tool-call.component';
+import { ReasoningPanelComponent } from './reasoning-panel.component';
 
 interface MessagePart {
   type: string;
   text?: string;
   state?: string;
+  url?: string;
+  mediaType?: string;
+  filename?: string;
   [key: string]: unknown;
+}
+
+interface FilePart extends MessagePart {
+  type: 'file';
+  mediaType: string;
+  url: string;
+  filename?: string;
 }
 
 export interface ChatMessageLike {
@@ -20,7 +31,7 @@ export interface ChatMessageLike {
 @Component({
   selector: 'ng-chat-message',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatExpansionModule, MatIconModule, MarkdownPipe, ToolCallComponent],
+  imports: [MatExpansionModule, MatIconModule, MarkdownPipe, ToolCallComponent, ReasoningPanelComponent],
   template: `
     <div class="row" [class.user]="isUser()" [class.assistant]="!isUser()">
       <div class="bubble">
@@ -34,23 +45,26 @@ export interface ChatMessageLike {
               }
             }
             @case ('reasoning') {
-              <mat-expansion-panel class="reasoning" [expanded]="part.state === 'streaming'">
-                <mat-expansion-panel-header>
-                  <mat-panel-title class="reasoning-title">
-                    <mat-icon>lightbulb</mat-icon>
-                    <span>Reasoning</span>
-                  </mat-panel-title>
-                </mat-expansion-panel-header>
-                <div class="reasoning-body">{{ part.text }}</div>
-              </mat-expansion-panel>
+              <ng-chat-reasoning-panel [part]="asReasoning(part)" />
             }
             @case ('tool') {
               <ng-chat-tool-call [part]="asTool(part)" />
             }
+            @case ('file') {
+              @let fp = asFile(part);
+              @if (fp.mediaType.startsWith('image/')) {
+                <img class="file-img" [src]="fp.url" [alt]="fp.filename ?? 'image'" />
+              } @else {
+                <div class="file-chip">
+                  <mat-icon class="file-chip-icon">{{ fp.mediaType === 'application/pdf' ? 'picture_as_pdf' : 'description' }}</mat-icon>
+                  <span class="file-chip-name">{{ fp.filename ?? fp.mediaType }}</span>
+                </div>
+              }
+            }
           }
         }
         @if (streaming()) {
-          <span class="cursor">▋</span>
+          <span class="cursor" aria-hidden="true">▋</span>
         }
       </div>
     </div>
@@ -78,10 +92,6 @@ export interface ChatMessageLike {
       border-bottom-left-radius: 4px;
     }
     .user-text { white-space: pre-wrap; word-break: break-word; }
-    .reasoning { box-shadow: none; background: transparent; margin: 4px 0; }
-    .reasoning-title { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: 0.7; }
-    .reasoning-title mat-icon { font-size: 16px; height: 16px; width: 16px; }
-    .reasoning-body { font-size: 13px; opacity: 0.75; white-space: pre-wrap; }
     .cursor { display: inline-block; margin-left: 1px; animation: ngc-blink 1s step-end infinite; }
     @keyframes ngc-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
     .text :first-child { margin-top: 0; }
@@ -92,6 +102,30 @@ export interface ChatMessageLike {
     ::ng-deep .text pre code { background: none; padding: 0; }
     ::ng-deep .text ul { margin: 4px 0 8px; padding-left: 20px; }
     ::ng-deep .text a { color: var(--mat-sys-primary, #6750a4); }
+    ::ng-deep .text table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 13px; }
+    ::ng-deep .text th, ::ng-deep .text td { border: 1px solid var(--mat-sys-outline-variant, #cac4d0); padding: 6px 10px; text-align: left; }
+    ::ng-deep .text th { background: rgba(0,0,0,0.04); font-weight: 600; }
+    ::ng-deep .text tr:nth-child(even) td { background: rgba(0,0,0,0.02); }
+    .file-img {
+      max-width: 240px;
+      max-height: 180px;
+      object-fit: contain;
+      border-radius: 8px;
+      display: block;
+      margin: 4px 0;
+    }
+    .file-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: rgba(0,0,0,0.06);
+      margin: 4px 0;
+      max-width: 220px;
+    }
+    .file-chip-icon { font-size: 16px; height: 16px; width: 16px; flex-shrink: 0; opacity: 0.75; }
+    .file-chip-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `],
 })
 export class MessageComponent {
@@ -100,14 +134,23 @@ export class MessageComponent {
 
   protected readonly isUser = computed(() => this.message().role === 'user');
 
-  protected kind(part: MessagePart): 'text' | 'reasoning' | 'tool' | 'other' {
+  protected kind(part: MessagePart): 'text' | 'reasoning' | 'tool' | 'file' | 'other' {
     if (part.type === 'text') return 'text';
     if (part.type === 'reasoning') return 'reasoning';
+    if (part.type === 'file') return 'file';
     if (part.type === 'dynamic-tool' || part.type.startsWith('tool-')) return 'tool';
     return 'other';
   }
 
   protected asTool(part: MessagePart): ToolPart {
     return part as unknown as ToolPart;
+  }
+
+  protected asReasoning(part: MessagePart) {
+    return part as { type: 'reasoning'; text?: string; state?: string };
+  }
+
+  protected asFile(part: MessagePart): FilePart {
+    return part as unknown as FilePart;
   }
 }

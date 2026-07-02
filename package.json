@@ -5,6 +5,23 @@
   "type": "module",
   "private": true,
   "license": "MIT",
+  "author": "philwilliammee",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/philwilliammee/ng-chat.git"
+  },
+  "keywords": [
+    "angular",
+    "hono",
+    "chat",
+    "ai",
+    "streaming",
+    "ai-sdk",
+    "agentic",
+    "vercel-ai-sdk",
+    "typescript",
+    "template"
+  ],
   "engines": {
     "node": ">=24.0.0"
   },
@@ -24,6 +41,7 @@
     "@hono/node-server": "^1.14.0",
     "ai": "^6.0.0",
     "hono": "^4.7.0",
+    "marked": "^18.0.5",
     "tsx": "^4.19.0",
     "zod": "^3.25.0"
   },
