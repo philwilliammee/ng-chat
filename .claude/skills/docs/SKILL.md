@@ -16,7 +16,8 @@ description: >
 .claude/skills/
 ├── docs/SKILL.md                    ← this file (meta-docs + strategy)
 ├── chat-streaming/SKILL.md          ← NgChatState/NgChat streaming pattern
-└── tool-registry/SKILL.md           ← adding tools to the server
+├── tool-registry/SKILL.md           ← adding tools to the server
+└── context-management/SKILL.md      ← context clipping, /compact, /close, token ring, memory save flow
 ```
 
 ## Angular documentation component

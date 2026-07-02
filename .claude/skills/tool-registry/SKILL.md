@@ -27,28 +27,30 @@ export function createMyTool() {
       input: z.string().describe('The input value'),
     }),
     execute: async ({ input }) => {
-      // return a plain object — serialised to JSON for the client
       return { result: `processed: ${input}` };
     },
   });
 }
 ```
 
-2. **Register in `server/app.ts`**:
+2. **Export from `packages/chat-server/src/index.ts`**:
+
+```typescript
+export { createMyTool } from './tools/my-tool.js';
+```
+
+3. **Register in `server/app.ts`** via `ToolRegistry`:
 
 ```typescript
 import { createMyTool } from '@ng-chat/server';
 
-const router = createChatRouter({
-  tools: {
-    use_skill: createUseSkillTool(skillsDir),
-    get_time: getTimeTool(),
-    my_tool: createMyTool(),   // ← add here
-  },
-});
+const tools = new ToolRegistry()
+  .register('use_skill', await createUseSkillTool({ skillsDir: config.skillsDir }))
+  .register('get_time', getTimeTool)
+  .register('my_tool', createMyTool());   // ← add here
 ```
 
-3. **Done.** The client renders tool calls via `ToolCallComponent` showing name, args, and result.
+4. **Done.** The client renders tool calls via `ToolCallComponent` showing name, args, and result.
 
 ## Tool call lifecycle
 
@@ -63,15 +65,21 @@ States emitted as SSE parts, consumed by `ToolCallComponent`:
 
 ## Built-in tools
 
-| Name | Factory | Description |
+| Name | Factory | Scoped to |
 |---|---|---|
-| `use_skill` | `createUseSkillTool(dir)` | Reads a named skill file and returns its content |
-| `get_time` | `getTimeTool()` | Returns current UTC time |
+| `use_skill` | `createUseSkillTool({ skillsDir })` | `SKILLS_DIR` |
+| `get_time` | `getTimeTool` | — |
+| `read_file` | `createReadFileTool(contentDir)` | `CONTENT_DIR` |
+| `search_files` | `createSearchFilesTool(contentDir)` | `CONTENT_DIR` |
+| `write_file` | `createWriteFileTool(contentDir)` | `CONTENT_DIR` |
+
+`read_file`, `search_files`, and `write_file` validate paths via `realpathSync` prefix-check —
+any path outside `CONTENT_DIR` returns an access-denied error, never a filesystem error.
 
 ## Location
 
 ```
 packages/chat-server/src/tools/     ← tool factories
-server/app.ts                        ← registration
+server/app.ts                        ← registration (ToolRegistry)
 packages/chat-ui/src/lib/components/tool-call.component.ts  ← client rendering
 ```
