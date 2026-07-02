@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@ang
 import { ChatComponent } from '@ng-chat/ui';
 import { ChatHistoryService, ChatSidebarComponent } from '@ng-chat/storage';
 import { ThinkingPreferenceService } from '../../services/thinking-preference.service';
+import { ModelPreferenceService } from '../../services/model-preference.service';
+import { ChatConfigService } from '../../services/chat-config.service';
+import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-chat-page',
@@ -17,6 +20,7 @@ import { ThinkingPreferenceService } from '../../services/thinking-preference.se
           (newConversation)="history.newConversation()"
           (selectConversation)="history.selectConversation($event)"
           (deleteConversation)="history.deleteConversation($event)"
+          (importConversation)="history.importConversation($event)"
           (toggleCollapse)="sidebarCollapsed.update(v => !v)" />
       </div>
       <div class="chat-panel">
@@ -25,8 +29,10 @@ import { ThinkingPreferenceService } from '../../services/thinking-preference.se
           emptyTitle="ng-chat"
           emptyHint="An open-source Angular + Hono agent chat. Ask a question or give the assistant a task."
           [thinkingLevel]="thinkingPreference.level()"
+          [model]="modelPreference.selected()"
           [messages]="history.activeMessages()"
           [conversationId]="history.activeId() ?? undefined"
+          [contextLimit]="contextLimit()"
           (finish)="history.saveConversation($event)" />
       </div>
     </div>
@@ -47,10 +53,19 @@ import { ThinkingPreferenceService } from '../../services/thinking-preference.se
 })
 export class ChatPageComponent implements OnInit {
   protected readonly thinkingPreference = inject(ThinkingPreferenceService);
+  protected readonly modelPreference = inject(ModelPreferenceService);
+  protected readonly chatConfig = inject(ChatConfigService);
   protected readonly history = inject(ChatHistoryService);
   protected readonly sidebarCollapsed = signal(false);
+  protected readonly contextLimit = signal(200_000);
+
+  private readonly http = inject(HttpClient);
 
   async ngOnInit(): Promise<void> {
     await this.history.init();
+    this.chatConfig.load('/api/chat');
+    this.http.get<{ contextLimit?: number }>('/api/chat/config').subscribe({
+      next: cfg => { if (cfg.contextLimit) this.contextLimit.set(cfg.contextLimit); },
+    });
   }
 }

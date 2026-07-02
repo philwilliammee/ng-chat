@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, input, output, signal, viewChild } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import type { Conversation } from './types';
@@ -24,12 +24,16 @@ import type { Conversation } from './types';
   template: `
     <div class="sidebar" [class.collapsed]="collapsed()">
 
-      <!-- Header: new-chat + collapse toggle -->
+      <!-- Header: new-chat + import + collapse toggle -->
       <div class="sidebar-header">
         @if (!collapsed()) {
           <button class="new-btn" (click)="newConversation.emit()">
             <mat-icon>add</mat-icon>
             <span>New chat</span>
+          </button>
+          <button class="icon-btn" aria-label="Import conversation" title="Import conversation JSON"
+            (click)="importFileRef().nativeElement.click()">
+            <mat-icon>upload</mat-icon>
           </button>
         }
         <button
@@ -40,6 +44,9 @@ import type { Conversation } from './types';
         </button>
       </div>
 
+      <!-- Hidden file input for import -->
+      <input #importFileInput type="file" accept=".json" style="display:none" (change)="onImportFile($event)" />
+
       <!-- Collapsed: icon strip -->
       @if (collapsed()) {
         <div class="icon-strip">
@@ -48,9 +55,20 @@ import type { Conversation } from './types';
           </button>
         </div>
       } @else {
+        <!-- Search -->
+        <div class="search-wrap">
+          <mat-icon class="search-icon">search</mat-icon>
+          <input
+            class="search-input"
+            type="search"
+            placeholder="Search conversations…"
+            [value]="searchQuery()"
+            (input)="searchQuery.set($any($event.target).value)" />
+        </div>
+
         <!-- Expanded: conversation list -->
         <div class="sidebar-list" role="list">
-          @for (conv of conversations(); track conv.id) {
+          @for (conv of filteredConversations(); track conv.id) {
             <div
               class="conv-item"
               role="listitem"
@@ -69,7 +87,7 @@ import type { Conversation } from './types';
               </button>
             </div>
           } @empty {
-            <p class="empty-hint">No conversations yet.</p>
+            <p class="empty-hint">{{ searchQuery() ? 'No matches.' : 'No conversations yet.' }}</p>
           }
         </div>
       }
@@ -145,6 +163,20 @@ import type { Conversation } from './types';
     .icon-strip .icon-btn { width: 36px; height: 36px; }
     .icon-strip .icon-btn mat-icon { font-size: 22px; height: 22px; width: 22px; }
 
+    /* ── Search ── */
+    .search-wrap {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--mat-sys-outline-variant, #cac4d0);
+      flex-shrink: 0;
+    }
+    .search-icon { font-size: 16px; height: 16px; width: 16px; opacity: 0.5; flex-shrink: 0; }
+    .search-input {
+      flex: 1; border: none; background: none; outline: none;
+      font-size: 13px; color: var(--mat-sys-on-surface, #1c1b1f);
+    }
+    .search-input::placeholder { color: var(--mat-sys-on-surface-variant, #49454f); opacity: 0.6; }
+
     /* ── Conversation list ── */
     .sidebar-list { flex: 1; overflow-y: auto; padding: 6px 0; }
 
@@ -209,4 +241,30 @@ export class ChatSidebarComponent {
   readonly selectConversation = output<string>();
   readonly deleteConversation = output<string>();
   readonly toggleCollapse = output<void>();
+  readonly importConversation = output<Conversation>();
+
+  protected readonly searchQuery = signal('');
+  protected readonly importFileRef = viewChild.required<ElementRef<HTMLInputElement>>('importFileInput');
+
+  protected readonly filteredConversations = computed(() => {
+    const q = this.searchQuery().toLowerCase().trim();
+    if (!q) return this.conversations();
+    return this.conversations().filter(c => c.title.toLowerCase().includes(q));
+  });
+
+  protected onImportFile(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result as string) as Conversation;
+        if (data && Array.isArray(data.messages)) {
+          this.importConversation.emit({ ...data, id: data.id ?? crypto.randomUUID() });
+        }
+      } catch { /* ignore invalid JSON */ }
+      (event.target as HTMLInputElement).value = '';
+    };
+    reader.readAsText(file);
+  }
 }

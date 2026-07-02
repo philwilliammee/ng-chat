@@ -11,18 +11,23 @@ const STORE = 'conversations';
  */
 export class ConversationStore {
   private db: IDBDatabase | null = null;
+  private openPromise: Promise<IDBDatabase> | null = null;
 
   private open(): Promise<IDBDatabase> {
     if (this.db) return Promise.resolve(this.db);
-    return new Promise((resolve, reject) => {
+    return (this.openPromise ??= new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = () => {
         const store = req.result.createObjectStore(STORE, { keyPath: 'id' });
         store.createIndex('by_updated', 'updatedAt');
       };
-      req.onsuccess = () => { this.db = req.result; resolve(this.db!); };
-      req.onerror = () => reject(req.error);
-    });
+      req.onsuccess = () => {
+        this.db = req.result;
+        this.db.onversionchange = () => { this.db?.close(); this.db = null; this.openPromise = null; };
+        resolve(this.db);
+      };
+      req.onerror = () => { this.openPromise = null; reject(req.error); };
+    }));
   }
 
   async save(conv: Conversation): Promise<void> {

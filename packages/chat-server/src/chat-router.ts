@@ -6,7 +6,13 @@ import {
   type UIMessage,
 } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { encode } from 'gpt-tokenizer';
 import { ToolRegistry } from './tools/registry.js';
+
+function countTokens(text: string): number {
+  try { return encode(text).length; }
+  catch { return Math.ceil(text.length / 4); }
+}
 
 export interface ChatRouterConfig {
   /** OpenAI-compatible base URL (e.g. Cornell gateway `.../v1`). */
@@ -30,6 +36,16 @@ export interface ChatRouterConfig {
    * 'disabled' (default) | 'low' | 'medium' | 'high'
    */
   defaultThinkingLevel?: string;
+  /**
+   * Allowlist of model ids the client may request. Defaults to [defaultModel].
+   * The client receives this list via GET /config for UI model switching.
+   */
+  allowedModels?: string[];
+  /**
+   * Per-IP sliding-window rate limit for POST /. Defaults to 60 req/min.
+   * Set to 0 to disable.
+   */
+  rateLimit?: { maxRequests: number; windowMs: number };
 }
 
 interface ChatRequestBody {
@@ -37,6 +53,20 @@ interface ChatRequestBody {
   model?: string;
   /** Thinking level requested by the client: 'disabled' | 'low' | 'medium' | 'high' */
   thinkingLevel?: string;
+}
+
+/** Per-IP sliding-window rate limiter (in-memory, single-instance). */
+function createRateLimiter(maxRequests: number, windowMs: number) {
+  const buckets = new Map<string, number[]>();
+  return function limit(ip: string): boolean {
+    const now = Date.now();
+    const cutoff = now - windowMs;
+    const hits = (buckets.get(ip) ?? []).filter(t => t > cutoff);
+    if (hits.length >= maxRequests) return false;
+    hits.push(now);
+    buckets.set(ip, hits);
+    return true;
+  };
 }
 
 const THINKING_BUDGETS: Record<string, number> = {
@@ -81,6 +111,16 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   const registry = config.tools ?? new ToolRegistry();
   const maxRounds = config.maxToolRounds ?? 8;
+  const allowedModels = config.allowedModels?.length
+    ? config.allowedModels
+    : [config.defaultModel];
+
+  const rl = config.rateLimit;
+  const rateLimitEnabled = rl ? rl.maxRequests > 0 : true;
+  const checkRate = rateLimitEnabled
+    ? createRateLimiter(rl?.maxRequests ?? 60, rl?.windowMs ?? 60_000)
+    : null;
+
   const app = new Hono();
 
   // Client bootstrap info (model, limits, available tools).
@@ -88,31 +128,68 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
     c.json({
       model: config.defaultModel,
       contextLimit: config.contextLimit ?? 128_000,
+      allowedModels,
       tools: registry.names(),
     }),
   );
 
   // Main streaming endpoint — returns a UI Message Stream (SSE).
   app.post('/', async (c) => {
+    // Rate limiting
+    if (checkRate) {
+      const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+        ?? c.req.header('x-real-ip')
+        ?? 'unknown';
+      if (!checkRate(ip)) {
+        return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
+      }
+    }
+
     try {
       const body = await c.req.json<ChatRequestBody>();
       const messages = Array.isArray(body.messages) ? body.messages : [];
+
+      // Validate model against allowlist
+      const requestedModel = body.model;
+      if (requestedModel && !allowedModels.includes(requestedModel)) {
+        return c.json({ error: `Model '${requestedModel}' is not available.` }, 400);
+      }
 
       const thinkingLevel = body.thinkingLevel ?? config.defaultThinkingLevel;
       const budgetTokens = thinkingBudgetFor(thinkingLevel);
       const provider = getProvider(budgetTokens);
 
+      // Count input tokens from the full conversation (messages + system prompt).
+      let inputTokens = 0;
+      if (config.systemPrompt) inputTokens += countTokens(config.systemPrompt);
+      for (const msg of messages) {
+        for (const part of (msg.parts ?? []) as Array<{ type: string; text?: string; reasoning?: string }>) {
+          if (part.type === 'text' && part.text) inputTokens += countTokens(part.text);
+          else if (part.type === 'reasoning' && part.reasoning) inputTokens += countTokens(part.reasoning);
+        }
+      }
+
+      // Accumulate output tokens across all agentic steps.
+      let outputTokens = 0;
+
       const result = streamText({
-        model: provider(body.model ?? config.defaultModel),
+        model: provider(requestedModel ?? config.defaultModel),
         system: config.systemPrompt,
         messages: await convertToModelMessages(messages),
         tools: registry.toAiTools(),
         stopWhen: stepCountIs(maxRounds),
         abortSignal: c.req.raw.signal,
+        onStepFinish: ({ text }) => {
+          if (text) outputTokens += countTokens(text);
+        },
       });
 
       return result.toUIMessageStreamResponse({
         sendReasoning: true,
+        messageMetadata: ({ part }) =>
+          part.type === 'finish'
+            ? { totalUsage: { promptTokens: inputTokens, completionTokens: outputTokens, totalTokens: inputTokens + outputTokens } }
+            : undefined,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal server error';

@@ -109,8 +109,8 @@ stateDiagram-v2
         <h3>Adding a new tool</h3>
         <ol>
           <li>
-            Create a factory in <code>packages/server/src/lib/tools/</code> that returns a
-            <code>CoreTool</code> (use <code>tool(&#123; description, parameters, execute &#125;)</code>
+            Create a factory in <code>packages/chat-server/src/tools/</code> that returns a
+            <code>CoreTool</code> (use <code>tool(&#123; description, inputSchema, execute &#125;)</code>
             from <code>ai</code>).
           </li>
           <li>
@@ -125,10 +125,10 @@ stateDiagram-v2
 
         <h3>use_skill tool</h3>
         <p>
-          <code>createUseSkillTool(skillsDir)</code> reads skill files from disk and executes them
-          via a sub-agent call. The tool name is <code>use_skill</code> and it accepts a
-          <code>skill_name</code> parameter. See
-          <code>packages/server/src/lib/tools/use-skill.tool.ts</code>.
+          <code>createUseSkillTool(skillsDir)</code> reads skill files from disk and returns their
+          content to the model. The tool name is <code>use_skill</code> and it accepts a
+          <code>name</code> parameter. See
+          <code>packages/chat-server/src/tools/use-skill.ts</code>.
         </p>
       </section>
 

@@ -7,6 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/chat-server/package.json ./packages/chat-server/
 COPY packages/chat-ui/package.json ./packages/chat-ui/
+COPY packages/chat-storage/package.json ./packages/chat-storage/
 RUN npm ci
 
 # Copy source and build the Angular client (static assets only)

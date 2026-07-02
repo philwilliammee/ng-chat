@@ -210,7 +210,7 @@ export class ChatPageComponent {
 />
 ```
 
-> This requires `ChatComponent` to accept `messages` and `conversationId` as inputs and wire `onFinish` through to `NgChat`. See [Required Library Changes](#required-library-changes).
+> `ChatComponent` already accepts `[messages]`, `[conversationId]`, and `(finish)` — no library changes required.
 
 **Pros:** Works offline, large capacity (~GBs, quota-managed by browser), no server, multi-conversation, fast reads.
 
@@ -310,54 +310,6 @@ A `SyncService` wraps `ConversationStore` and adds:
 | Multi-user / auth | No | No | Yes | Yes |
 | Audit / compliance | No | No | Yes | Yes |
 | Dependency added | None | None | HTTP + Auth | IDB + HTTP |
-
----
-
-## Required Library Changes
-
-Before any storage strategy can be wired in from outside the package, three changes are needed in `packages/chat-ui`:
-
-### 1. Export `NgChat` and `NgChatState`
-
-`packages/chat-ui/src/public-api.ts` currently only exports components. Add:
-
-```ts
-export { NgChat } from './lib/ng-chat-state';
-export { NgChatState } from './lib/ng-chat-state';
-```
-
-### 2. Add `messages`, `conversationId`, and `(finish)` to `ChatComponent`
-
-```ts
-@Component({ ... })
-export class ChatComponent {
-  api = input.required<string>();
-  messages = input<UIMessage[]>([]);
-  conversationId = input<string | undefined>(undefined);
-  finish = output<{ messages: UIMessage[]; id: string }>();
-
-  ngOnInit() {
-    this.chat = new NgChat({
-      id: this.conversationId() ?? crypto.randomUUID(),
-      messages: this.messages(),
-      transport: new DefaultChatTransport({ api: this.api() }),
-      onFinish: ({ messages }) =>
-        this.finish.emit({ messages, id: this.chat.id }),
-    });
-  }
-}
-```
-
-### 3. React to `messages` input changes (conversation switch)
-
-When the host app loads a different conversation, `ChatComponent` must reinitialise `NgChat` with the new messages. Use an `effect()`:
-
-```ts
-effect(() => {
-  const msgs = this.messages();
-  if (this.chat) this.chat.setMessages(msgs);
-});
-```
 
 ---
 

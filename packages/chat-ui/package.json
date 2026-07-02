@@ -9,9 +9,13 @@
   },
   "peerDependencies": {
     "@ai-sdk/angular": "^2.0.0",
-    "@angular/core": "^21.0.0",
     "@angular/common": "^21.0.0",
+    "@angular/core": "^21.0.0",
     "@angular/material": "^21.0.0",
     "ai": "^6.0.0"
+  },
+  "dependencies": {
+    "@types/dompurify": "^3.0.5",
+    "dompurify": "^3.4.11"
   }
 }

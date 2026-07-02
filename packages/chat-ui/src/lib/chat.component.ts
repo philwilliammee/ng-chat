@@ -4,9 +4,11 @@ import {
   ElementRef,
   OnInit,
   afterEveryRender,
+  computed,
   effect,
   input,
   output,
+  signal,
   untracked,
   viewChild,
 } from '@angular/core';
@@ -72,12 +74,24 @@ import { NgChat } from './ng-chat-state';
             <span>{{ errorText() }}</span>
           </div>
         }
-        @if (thinkingLevel() && thinkingLevel() !== 'disabled') {
-          <div class="thinking-badge">
-            <mat-icon class="thinking-badge-icon">lightbulb</mat-icon>
-            <span>Thinking: {{ thinkingLevel() | titlecase }}</span>
-          </div>
-        }
+        <div class="status-row">
+          @if (thinkingLevel() && thinkingLevel() !== 'disabled') {
+            <span class="thinking-badge">
+              <mat-icon class="thinking-badge-icon">lightbulb</mat-icon>
+              <span>Thinking: {{ thinkingLevel() | titlecase }}</span>
+            </span>
+          }
+          @if (tokenUsage() > 0) {
+            <span class="token-badge" [matTooltip]="tokenUsageLabel()" matTooltipPosition="above">
+              <svg class="token-ring" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="token-ring-bg" cx="12" cy="12" r="9" />
+                <circle class="token-ring-fill" cx="12" cy="12" r="9"
+                  [style.stroke-dashoffset]="tokenRingOffset()"
+                  [style.stroke]="tokenRingStroke()" />
+              </svg>
+            </span>
+          }
+        </div>
       </div>
     </div>
   `,
@@ -115,12 +129,33 @@ import { NgChat } from './ng-chat-state';
       font-size: 13px;
     }
     .error-banner mat-icon { font-size: 18px; height: 18px; width: 18px; }
+    .status-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 4px; min-height: 20px;
+    }
     .thinking-badge {
-      display: flex; align-items: center; justify-content: center; gap: 3px;
-      margin-top: 4px; font-size: 11px;
+      display: flex; align-items: center; gap: 3px; font-size: 11px;
       color: var(--mat-sys-on-surface-variant, #49454f); opacity: 0.6;
     }
     .thinking-badge-icon { font-size: 12px; height: 12px; width: 12px; }
+    .token-badge {
+      display: flex; align-items: center; cursor: default; opacity: 0.55;
+      transition: opacity 0.15s;
+    }
+    .token-badge:hover { opacity: 0.85; }
+    .token-ring {
+      width: 16px; height: 16px; flex-shrink: 0;
+      transform: rotate(-90deg);
+    }
+    .token-ring-bg {
+      fill: none; stroke: var(--mat-sys-on-surface-variant, #49454f);
+      stroke-width: 2.5; opacity: 0.25;
+    }
+    .token-ring-fill {
+      fill: none; stroke: var(--mat-sys-on-surface-variant, #49454f);
+      stroke-width: 2.5; stroke-dasharray: 56.55; stroke-linecap: round;
+      transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
+    }
   `],
 })
 export class ChatComponent implements OnInit {
@@ -140,8 +175,36 @@ export class ChatComponent implements OnInit {
 
   /** Emits after each complete assistant turn with the full message array and conversation id. */
   readonly finish = output<{ messages: UIMessage[]; id: string }>();
+  /** Context window size in tokens (used to scale the usage ring). Default: 200 000. */
+  readonly contextLimit = input<number>(200_000);
 
-  protected chat!: AbstractChat<UIMessage>;
+  private readonly _chat = signal<AbstractChat<UIMessage> | null>(null);
+  protected get chat(): AbstractChat<UIMessage> { return this._chat()!; }
+
+  // Updated with real token counts from the server after each assistant turn.
+  protected readonly tokenUsage = signal(0);
+
+  // 2 * π * 9 (radius) ≈ 56.55
+  private static readonly RING_CIRCUMFERENCE = 56.55;
+
+  protected readonly tokenRingOffset = computed(() => {
+    const progress = Math.min(this.tokenUsage() / this.contextLimit(), 1);
+    return ChatComponent.RING_CIRCUMFERENCE * (1 - progress);
+  });
+
+  protected readonly tokenRingStroke = computed(() => {
+    const ratio = this.tokenUsage() / this.contextLimit();
+    if (ratio > 0.9) return 'var(--mat-sys-error, #b3261e)';
+    if (ratio > 0.75) return 'var(--mat-sys-tertiary, #7d5260)';
+    return null; // inherit from CSS
+  });
+
+  protected readonly tokenUsageLabel = computed(() => {
+    const used = this.tokenUsage();
+    const limit = this.contextLimit();
+    const pct = Math.round((used / limit) * 100);
+    return `${(used / 1000).toFixed(1)}k / ${(limit / 1000).toFixed(0)}k tokens (${pct}%)`;
+  });
 
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
@@ -160,18 +223,22 @@ export class ChatComponent implements OnInit {
       this.conversationId(); // tracked — fires when conversation switches
       const msgs = untracked(() => this.messages());
       if (this.chat) this.chat.messages = msgs;
+      untracked(() => this.tokenUsage.set(0));
     });
   }
 
   ngOnInit(): void {
-    this.chat = new NgChat<UIMessage>({
+    this._chat.set(new NgChat<UIMessage>({
       id: this.conversationId(),
       messages: this.messages(),
       transport: new DefaultChatTransport({ api: this.api() }),
-      onFinish: ({ messages }) => {
+      onFinish: ({ message, messages }) => {
+        const meta = (message as { metadata?: { totalUsage?: { totalTokens?: number } } }).metadata;
+        const tokens = meta?.totalUsage?.totalTokens;
+        if (tokens) this.tokenUsage.set(tokens);
         this.finish.emit({ messages, id: this.conversationId() ?? this.chat.id });
       },
-    });
+    }));
   }
 
   protected busy(): boolean {

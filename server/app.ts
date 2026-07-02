@@ -44,6 +44,8 @@ app.route(
     tools,
     providerName: 'ai-gateway',
     defaultThinkingLevel: config.thinkingDefaultLevel,
+    allowedModels: config.allowedModels,
+    rateLimit: config.rateLimit,
   }),
 );
 

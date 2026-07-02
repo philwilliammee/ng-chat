@@ -6,6 +6,8 @@ import {
   ThinkingPreferenceService,
   type ThinkingLevel,
 } from '../../../services/thinking-preference.service';
+import { ModelPreferenceService } from '../../../services/model-preference.service';
+import { ChatConfigService } from '../../../services/chat-config.service';
 
 const LEVELS: { value: ThinkingLevel; label: string; hint: string }[] = [
   { value: 'disabled', label: 'Off', hint: 'No extended thinking' },
@@ -21,6 +23,29 @@ const LEVELS: { value: ThinkingLevel; label: string; hint: string }[] = [
   template: `
     <div class="settings-page">
       <h1>Settings</h1>
+
+      <!-- Model selector — only shown when more than one model is available -->
+      @if (chatConfig.allowedModels().length > 1) {
+        <mat-card class="setting-card">
+          <mat-card-header>
+            <mat-icon mat-card-avatar>smart_toy</mat-icon>
+            <mat-card-title>Model</mat-card-title>
+            <mat-card-subtitle>Which AI model to use for new messages</mat-card-subtitle>
+          </mat-card-header>
+          <mat-card-content>
+            <mat-button-toggle-group
+              [value]="modelPreference.selected() ?? chatConfig.defaultModel()"
+              (change)="modelPreference.setModel($event.value)"
+              aria-label="Model">
+              @for (m of chatConfig.allowedModels(); track m) {
+                <mat-button-toggle [value]="m">
+                  <span class="toggle-label">{{ m }}</span>
+                </mat-button-toggle>
+              }
+            </mat-button-toggle-group>
+          </mat-card-content>
+        </mat-card>
+      }
 
       <mat-card class="setting-card">
         <mat-card-header>
@@ -56,5 +81,11 @@ const LEVELS: { value: ThinkingLevel; label: string; hint: string }[] = [
 })
 export class SettingsComponent {
   protected readonly thinking = inject(ThinkingPreferenceService);
+  protected readonly modelPreference = inject(ModelPreferenceService);
+  protected readonly chatConfig = inject(ChatConfigService);
   protected readonly levels = LEVELS;
+
+  constructor() {
+    this.chatConfig.load('/api/chat');
+  }
 }

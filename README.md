@@ -12,6 +12,7 @@ an existing app, or pointed at any compatible endpoint.
 - **Standard protocol** — no bespoke wire format. Uses the AI SDK data stream (SSE).
 - **Agentic tool loop** — the model can call tools to take actions and fetch data.
 - **Reasoning** — streamed chain-of-thought rendered in a collapsible "Thought for Ns" panel; thinking level (off / low / medium / high) is configurable per-user in Settings.
+- **Token usage ring** — a subtle circular indicator next to the thinking badge shows context fill (empty → full circle = 0 → context limit); colour shifts amber at 75% and red at 90%.
 - **Conversation history** — IndexedDB-backed multi-conversation storage via `@ng-chat/storage`; collapsible sidebar included.
 - **Conversation download** — export any chat session as a JSON file for persistence or debugging.
 - **Pluggable tools** — register AI SDK `tool()`s; ships with a default `use_skill`
@@ -99,6 +100,7 @@ import { ChatComponent } from '@ng-chat/ui';
 | `placeholder` | `string` | Textarea placeholder text |
 | `emptyTitle` | `string` | Heading shown when no messages exist |
 | `emptyHint` | `string` | Sub-text shown when no messages exist |
+| `contextLimit` | `number` | Context window size in tokens — scales the token-usage ring (default `200000`) |
 | `(finish)` | `{ messages, id }` | Fires after each complete assistant turn — use to persist the conversation |
 
 Backend — mount the router into any Hono app:

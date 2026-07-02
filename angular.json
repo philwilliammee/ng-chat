@@ -29,14 +29,14 @@
           "options": {
             "outputPath": { "base": "dist/client" },
             "index": "client/index.html",
-            "polyfills": ["zone.js"],
+            "polyfills": [],
             "tsConfig": "client/tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": ["client/favicon.ico", "client/assets"],
             "styles": ["client/styles.scss"],
             "scripts": [],
             "browser": "client/main.ts",
-            "allowedCommonJsDependencies": ["@vercel/oidc"]
+            "allowedCommonJsDependencies": []
           },
           "configurations": {
             "production": {

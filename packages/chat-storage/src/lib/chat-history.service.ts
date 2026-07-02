@@ -86,6 +86,18 @@ export class ChatHistoryService {
     }
   }
 
+  async importConversation(conv: Conversation): Promise<void> {
+    const now = Date.now();
+    const imported: Conversation = {
+      ...conv,
+      id: conv.id ?? crypto.randomUUID(),
+      updatedAt: now,
+    };
+    await this.store.save(imported);
+    this.conversations.update(list => [imported, ...list].sort((a, b) => b.updatedAt - a.updatedAt));
+    this.activeId.set(imported.id);
+  }
+
   async clearAll(): Promise<void> {
     await this.store.clear();
     this.conversations.set([]);

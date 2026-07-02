@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatListModule } from '@angular/material/list';
@@ -11,6 +11,7 @@ import { AppRoute } from '../../../app.routes';
 
 @Component({
   selector: 'lib-simple-side-menu',
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterModule,
     MatMenuModule,
