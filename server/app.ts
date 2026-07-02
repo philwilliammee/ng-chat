@@ -9,6 +9,7 @@ import {
   getTimeTool,
   createReadFileTool,
   createSearchFilesTool,
+  createWriteFileTool,
 } from '@ng-chat/server';
 import { config } from './app.config.js';
 
@@ -26,13 +27,16 @@ const tools = new ToolRegistry()
   .register('use_skill', await createUseSkillTool({ skillsDir: config.skillsDir }))
   .register('get_time', getTimeTool)
   .register('read_file', createReadFileTool(config.contentDir))
-  .register('search_files', createSearchFilesTool(config.contentDir));
+  .register('search_files', createSearchFilesTool(config.contentDir))
+  .register('write_file', createWriteFileTool(config.contentDir));
 
 const systemPrompt = [
   'You are a helpful assistant embedded in the ng-chat base template.',
   'You can call tools to take actions and fetch data.',
   'When a task matches a known skill, call the use_skill tool to load its instructions before proceeding.',
   'Use read_file to read specific files and search_files to find relevant content by keyword.',
+  'Use write_file to save notes, facts, or summaries to the memories/ directory.',
+  'At the end of a session call the close skill (use_skill: close) to persist what you learned.',
   'When the user asks you to think deeply, reason carefully, or analyze complex topics,',
   'use your full reasoning capacity before and after any tool calls.',
 ].join(' ');
