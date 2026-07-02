@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "gpt-tokenizer": "^3.4.0"
+  },
   "peerDependencies": {
     "@ai-sdk/openai-compatible": "^2.0.0",
     "ai": "^6.0.0",

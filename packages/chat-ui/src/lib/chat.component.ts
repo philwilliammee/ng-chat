@@ -6,20 +6,36 @@ import {
   afterEveryRender,
   computed,
   effect,
+  inject,
   input,
   output,
   signal,
   untracked,
   viewChild,
 } from '@angular/core';
-import { TitleCasePipe } from '@angular/common';
+import { DecimalPipe, TitleCasePipe } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { AbstractChat, DefaultChatTransport, type UIMessage } from 'ai';
+import { firstValueFrom } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { MessageComponent, type ChatMessageLike } from './components/message.component';
 import { MessageInputComponent, type SendPayload } from './components/message-input.component';
 import { NgChat } from './ng-chat-state';
+
+/** Strip inline base64 file parts from user messages so they aren't re-sent on future turns. */
+function stripInlineFiles(messages: UIMessage[]): UIMessage[] {
+  return messages.map(m => {
+    if (m.role !== 'user') return m;
+    const parts = (m.parts ?? []) as Array<Record<string, unknown>>;
+    const pruned = parts.filter(
+      p => !(p['type'] === 'file' && typeof p['url'] === 'string' && p['url'].startsWith('data:')),
+    );
+    if (pruned.length === parts.length) return m;
+    return { ...m, parts: pruned } as UIMessage;
+  });
+}
 
 /**
  * `<ng-chat>` — a self-contained, signals-based chat surface.
@@ -33,12 +49,23 @@ import { NgChat } from './ng-chat-state';
 @Component({
   selector: 'ng-chat',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatButtonModule, MatIconModule, MatTooltipModule, TitleCasePipe, MessageComponent, MessageInputComponent],
+  imports: [DecimalPipe, MatButtonModule, MatIconModule, MatTooltipModule, TitleCasePipe, MessageComponent, MessageInputComponent],
   template: `
     <div class="chat">
       <div #scroller class="scroll" role="log" aria-live="polite" aria-label="Chat messages" aria-atomic="false">
         @if (chat && chat.messages.length > 0) {
           <div class="chat-toolbar">
+            @if (canCompact()) {
+              <button
+                mat-icon-button
+                class="compact-btn"
+                [matTooltip]="compacting() ? 'Compacting…' : 'Compact conversation (context is ' + (tokenUsagePct() | number:'1.0-0') + '% full)'"
+                aria-label="Compact conversation history"
+                [disabled]="compacting() || busy()"
+                (click)="compactConversation()">
+                <mat-icon>compress</mat-icon>
+              </button>
+            }
             <button
               mat-icon-button
               class="download-btn"
@@ -107,6 +134,8 @@ import { NgChat } from './ng-chat-state';
     }
     .download-btn { opacity: 0.4; transition: opacity 0.15s; }
     .download-btn:hover { opacity: 0.85; }
+    .compact-btn { opacity: 0.55; transition: opacity 0.15s; color: var(--mat-sys-tertiary, #7d5260); }
+    .compact-btn:hover { opacity: 0.9; }
     .composer-wrap { padding: 12px 16px 16px; }
     .empty {
       height: 100%;
@@ -181,8 +210,11 @@ export class ChatComponent implements OnInit {
   private readonly _chat = signal<AbstractChat<UIMessage> | null>(null);
   protected get chat(): AbstractChat<UIMessage> { return this._chat()!; }
 
+  private readonly http = inject(HttpClient);
+
   // Updated with real token counts from the server after each assistant turn.
   protected readonly tokenUsage = signal(0);
+  protected readonly compacting = signal(false);
 
   // 2 * π * 9 (radius) ≈ 56.55
   private static readonly RING_CIRCUMFERENCE = 56.55;
@@ -205,6 +237,12 @@ export class ChatComponent implements OnInit {
     const pct = Math.round((used / limit) * 100);
     return `${(used / 1000).toFixed(1)}k / ${(limit / 1000).toFixed(0)}k tokens (${pct}%)`;
   });
+
+  protected readonly tokenUsagePct = computed(() => this.tokenUsage() / this.contextLimit() * 100);
+
+  protected readonly canCompact = computed(
+    () => this.tokenUsagePct() > 70 && (this._chat()?.messages.length ?? 0) > 2,
+  );
 
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
 
@@ -236,7 +274,7 @@ export class ChatComponent implements OnInit {
         const meta = (message as { metadata?: { totalUsage?: { totalTokens?: number } } }).metadata;
         const tokens = meta?.totalUsage?.totalTokens;
         if (tokens) this.tokenUsage.set(tokens);
-        this.finish.emit({ messages, id: this.conversationId() ?? this.chat.id });
+        this.finish.emit({ messages: stripInlineFiles(messages), id: this.conversationId() ?? this.chat.id });
       },
     }));
   }
@@ -275,6 +313,30 @@ export class ChatComponent implements OnInit {
 
   protected asLike(message: UIMessage): ChatMessageLike {
     return message as unknown as ChatMessageLike;
+  }
+
+  protected async compactConversation(): Promise<void> {
+    const chat = this._chat();
+    if (!chat || this.compacting()) return;
+    this.compacting.set(true);
+    try {
+      const result = await firstValueFrom(
+        this.http.post<{ summary: string }>(`${this.api()}/compact`, { messages: chat.messages }),
+      );
+      if (!result?.summary) return;
+      const compactedMessage: UIMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        parts: [{ type: 'text', text: result.summary }],
+      };
+      chat.messages = [compactedMessage];
+      this.tokenUsage.set(0);
+      this.finish.emit({ messages: chat.messages, id: this.conversationId() ?? chat.id });
+    } catch (e) {
+      console.error('Compact failed', e);
+    } finally {
+      this.compacting.set(false);
+    }
   }
 
   protected downloadConversation(): void {

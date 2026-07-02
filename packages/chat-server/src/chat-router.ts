@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import {
   streamText,
+  generateText,
   convertToModelMessages,
   stepCountIs,
   type UIMessage,
@@ -12,6 +13,53 @@ import { ToolRegistry } from './tools/registry.js';
 function countTokens(text: string): number {
   try { return encode(text).length; }
   catch { return Math.ceil(text.length / 4); }
+}
+
+/** Estimate total tokens for a UIMessage array (text parts only; +1000 per inline image). */
+function estimateMessagesTokens(messages: UIMessage[]): number {
+  let total = 0;
+  for (const msg of messages) {
+    for (const part of (msg.parts ?? []) as Array<Record<string, unknown>>) {
+      if (part['type'] === 'text' && typeof part['text'] === 'string') {
+        total += countTokens(part['text']);
+      } else if (part['type'] === 'reasoning' && typeof part['reasoning'] === 'string') {
+        total += countTokens(part['reasoning']);
+      } else if (part['type'] === 'file') {
+        // Inline base64 images are expensive; count ~1000 tokens each rather than the raw bytes
+        total += 1_000;
+      } else if (part['type'] === 'tool-invocation') {
+        const inv = part['toolInvocation'] as Record<string, unknown> | undefined;
+        if (inv?.['args']) total += countTokens(JSON.stringify(inv['args']));
+        if (inv?.['result']) total += countTokens(JSON.stringify(inv['result']));
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Trim `messages` to fit within `budget` tokens by dropping the oldest complete
+ * user-turn boundaries (user message + following assistant message(s)) until the
+ * total estimated token count is within budget.  Always retains at least the last
+ * complete turn so the model still has something to respond to.
+ */
+function clipHistory(messages: UIMessage[], budget: number): UIMessage[] {
+  if (estimateMessagesTokens(messages) <= budget) return messages;
+
+  // Collect the index of each user message — these are turn boundaries.
+  const userIndices = messages
+    .map((m, i) => (m.role === 'user' ? i : -1))
+    .filter(i => i >= 0);
+
+  // We need at least the last user turn, so we can drop everything before the
+  // second-to-last user boundary at most.
+  let result = messages;
+  for (let drop = 0; drop < userIndices.length - 1; drop++) {
+    const nextUserIdx = userIndices[drop + 1];
+    result = messages.slice(nextUserIdx);
+    if (estimateMessagesTokens(result) <= budget) break;
+  }
+  return result;
 }
 
 export interface ChatRouterConfig {
@@ -46,6 +94,11 @@ export interface ChatRouterConfig {
    * Set to 0 to disable.
    */
   rateLimit?: { maxRequests: number; windowMs: number };
+  /**
+   * Root directory for the read_file / search_files tools.
+   * Files outside this directory are rejected. Defaults to `./skills`.
+   */
+  contentDir?: string;
 }
 
 interface ChatRequestBody {
@@ -123,15 +176,57 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   const app = new Hono();
 
+  const contextLimit = config.contextLimit ?? 128_000;
+  // Reserve headroom for the model's response + tool-call overhead.
+  const historyBudget = contextLimit - 8_000;
+
   // Client bootstrap info (model, limits, available tools).
   app.get('/config', (c) =>
     c.json({
       model: config.defaultModel,
-      contextLimit: config.contextLimit ?? 128_000,
+      contextLimit,
       allowedModels,
       tools: registry.names(),
     }),
   );
+
+  // Compact endpoint — summarises a conversation into a single paragraph so the
+  // client can replace its history and reclaim context budget.
+  app.post('/compact', async (c) => {
+    try {
+      const body = await c.req.json<{ messages: UIMessage[] }>();
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+
+      // Build a plain-text transcript (text parts only; skip tool calls and files).
+      const transcript = messages
+        .map(m => {
+          const textParts = (m.parts ?? []) as Array<Record<string, unknown>>;
+          const text = textParts
+            .filter(p => p['type'] === 'text' && typeof p['text'] === 'string')
+            .map(p => p['text'] as string)
+            .join(' ');
+          return text ? `${m.role}: ${text}` : null;
+        })
+        .filter(Boolean)
+        .join('\n');
+
+      const provider = getProvider(undefined);
+      const { text: summary } = await generateText({
+        model: provider(config.defaultModel),
+        messages: [
+          {
+            role: 'user',
+            content: `Summarise the following conversation in 3–6 sentences. Preserve all key facts, decisions, and outcomes. Write in past tense as a neutral observer.\n\n${transcript}`,
+          },
+        ],
+      });
+
+      return c.json({ summary });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Internal server error';
+      return c.json({ error: message }, 500);
+    }
+  });
 
   // Main streaming endpoint — returns a UI Message Stream (SSE).
   app.post('/', async (c) => {
@@ -147,7 +242,10 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
     try {
       const body = await c.req.json<ChatRequestBody>();
-      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const messages = clipHistory(
+        Array.isArray(body.messages) ? body.messages : [],
+        historyBudget,
+      );
 
       // Validate model against allowlist
       const requestedModel = body.model;
@@ -159,15 +257,9 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
       const budgetTokens = thinkingBudgetFor(thinkingLevel);
       const provider = getProvider(budgetTokens);
 
-      // Count input tokens from the full conversation (messages + system prompt).
-      let inputTokens = 0;
-      if (config.systemPrompt) inputTokens += countTokens(config.systemPrompt);
-      for (const msg of messages) {
-        for (const part of (msg.parts ?? []) as Array<{ type: string; text?: string; reasoning?: string }>) {
-          if (part.type === 'text' && part.text) inputTokens += countTokens(part.text);
-          else if (part.type === 'reasoning' && part.reasoning) inputTokens += countTokens(part.reasoning);
-        }
-      }
+      // Count input tokens from the clipped conversation (messages + system prompt).
+      let inputTokens = config.systemPrompt ? countTokens(config.systemPrompt) : 0;
+      inputTokens += estimateMessagesTokens(messages);
 
       // Accumulate output tokens across all agentic steps.
       let outputTokens = 0;

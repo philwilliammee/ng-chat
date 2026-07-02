@@ -7,6 +7,8 @@ import {
   ToolRegistry,
   createUseSkillTool,
   getTimeTool,
+  createReadFileTool,
+  createSearchFilesTool,
 } from '@ng-chat/server';
 import { config } from './app.config.js';
 
@@ -22,12 +24,15 @@ app.get('/health', (c) =>
 // --- Chat: agentic tool loop ---
 const tools = new ToolRegistry()
   .register('use_skill', await createUseSkillTool({ skillsDir: config.skillsDir }))
-  .register('get_time', getTimeTool);
+  .register('get_time', getTimeTool)
+  .register('read_file', createReadFileTool(config.contentDir))
+  .register('search_files', createSearchFilesTool(config.contentDir));
 
 const systemPrompt = [
   'You are a helpful assistant embedded in the ng-chat base template.',
   'You can call tools to take actions and fetch data.',
   'When a task matches a known skill, call the use_skill tool to load its instructions before proceeding.',
+  'Use read_file to read specific files and search_files to find relevant content by keyword.',
   'When the user asks you to think deeply, reason carefully, or analyze complex topics,',
   'use your full reasoning capacity before and after any tool calls.',
 ].join(' ');
@@ -46,6 +51,7 @@ app.route(
     defaultThinkingLevel: config.thinkingDefaultLevel,
     allowedModels: config.allowedModels,
     rateLimit: config.rateLimit,
+    contentDir: config.contentDir,
   }),
 );
 

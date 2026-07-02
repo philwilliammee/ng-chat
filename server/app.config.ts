@@ -13,6 +13,8 @@ export interface EnvVars {
   RATE_LIMIT_MAX?: string;
   /** Rate limit window in milliseconds. Default: 60000 (1 minute). */
   RATE_LIMIT_WINDOW_MS?: string;
+  /** Root directory for read_file / search_files tools. Default: ./skills */
+  CONTENT_DIR?: string;
 }
 
 const typedEnv = process.env as unknown as EnvVars;
@@ -28,6 +30,7 @@ export const config = {
   contextLimit: parseInt(typedEnv.CHAT_CONTEXT_LIMIT || '200000', 10) || 200_000,
   maxToolRounds: parseInt(typedEnv.MAX_TOOL_ROUNDS || '8', 10) || 8,
   skillsDir: typedEnv.SKILLS_DIR ?? './skills',
+  contentDir: typedEnv.CONTENT_DIR ?? './skills',
   thinkingDefaultLevel: typedEnv.THINKING_DEFAULT_LEVEL ?? 'disabled',
   allowedModels: rawAllowedModels
     ? rawAllowedModels.split(',').map(s => s.trim()).filter(Boolean)
