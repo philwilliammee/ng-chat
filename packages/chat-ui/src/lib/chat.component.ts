@@ -89,7 +89,7 @@ import { NgChat } from './ng-chat-state';
       display: flex; justify-content: flex-end;
       position: sticky; top: 0; z-index: 1;
       padding: 0 0 4px;
-      background: linear-gradient(to bottom, var(--mat-sys-surface, #fff) 70%, transparent);
+      background: transparent;
     }
     .download-btn { opacity: 0.4; transition: opacity 0.15s; }
     .download-btn:hover { opacity: 0.85; }

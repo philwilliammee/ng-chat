@@ -15,9 +15,9 @@ import { SimpleSideMenuComponent } from "../simple-side-menu/simple-side-menu.co
       [showToggle]="true"
     >
       <ng-content ngProjectAs="[toolbar]" />
-      <div class="flex flex-direction-column gap-2">
+      <!-- <div class="flex flex-direction-column gap-2 p-2"> -->
         <router-outlet />
-      </div>
+      <!-- </div> -->
     </lib-simple-side-menu>
   `,
   styles: [
