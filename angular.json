@@ -36,7 +36,7 @@
             "styles": ["client/styles.scss"],
             "scripts": [],
             "browser": "client/main.ts",
-            "allowedCommonJsDependencies": []
+            "allowedCommonJsDependencies": ["@vercel/oidc"]
           },
           "configurations": {
             "production": {
