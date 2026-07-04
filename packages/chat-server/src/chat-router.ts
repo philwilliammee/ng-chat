@@ -6,63 +6,14 @@ import {
   stepCountIs,
   type UIMessage,
 } from 'ai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { encode } from 'gpt-tokenizer';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { ToolRegistry } from './tools/registry.js';
-
-function countTokens(text: string): number {
-  try { return encode(text).length; }
-  catch { return Math.ceil(text.length / 4); }
-}
-
-/** Estimate total tokens for a UIMessage array (text parts only; +1000 per inline image). */
-function estimateMessagesTokens(messages: UIMessage[]): number {
-  let total = 0;
-  for (const msg of messages) {
-    for (const part of (msg.parts ?? []) as Array<Record<string, unknown>>) {
-      if (part['type'] === 'text' && typeof part['text'] === 'string') {
-        total += countTokens(part['text']);
-      } else if (part['type'] === 'reasoning' && typeof part['reasoning'] === 'string') {
-        total += countTokens(part['reasoning']);
-      } else if (part['type'] === 'file') {
-        // Inline base64 images are expensive; count ~1000 tokens each rather than the raw bytes
-        total += 1_000;
-      } else if (part['type'] === 'tool-invocation') {
-        const inv = part['toolInvocation'] as Record<string, unknown> | undefined;
-        if (inv?.['args']) total += countTokens(JSON.stringify(inv['args']));
-        if (inv?.['result']) total += countTokens(JSON.stringify(inv['result']));
-      }
-    }
-  }
-  return total;
-}
-
-/**
- * Trim `messages` to fit within `budget` tokens by dropping the oldest complete
- * user-turn boundaries (user message + following assistant message(s)) until the
- * total estimated token count is within budget.  Always retains at least the last
- * complete turn so the model still has something to respond to.
- */
-function clipHistory(messages: UIMessage[], budget: number): UIMessage[] {
-  if (estimateMessagesTokens(messages) <= budget) return messages;
-
-  // Collect the index of each user message — these are turn boundaries.
-  const userIndices = messages
-    .map((m, i) => (m.role === 'user' ? i : -1))
-    .filter(i => i >= 0);
-
-  // We need at least the last user turn, so we can drop everything before the
-  // second-to-last user boundary at most.
-  let result = messages;
-  for (let drop = 0; drop < userIndices.length - 1; drop++) {
-    const nextUserIdx = userIndices[drop + 1];
-    result = messages.slice(nextUserIdx);
-    if (estimateMessagesTokens(result) <= budget) break;
-  }
-  return result;
-}
+import { countTokens, estimateMessagesTokens } from './lib/tokens.js';
+import { clipHistory } from './lib/history.js';
+import { createRateLimiter, getClientIp } from './lib/rate-limit.js';
+import { thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
+import { buildTranscript } from './lib/transcript.js';
 
 export interface ChatRouterConfig {
   /** OpenAI-compatible base URL (e.g. Cornell gateway `.../v1`). */
@@ -76,7 +27,7 @@ export interface ChatRouterConfig {
   /** Max agentic tool-calling rounds per turn. */
   maxToolRounds?: number;
   /** System prompt prepended to every conversation. */
-  systemPrompt?: string;
+  systemPrompt?: string | (() => string);
   /** Tool registry exposed to the model. Defaults to an empty registry. */
   tools?: ToolRegistry;
   /** Provider label (cosmetic). */
@@ -110,30 +61,6 @@ interface ChatRequestBody {
   thinkingLevel?: string;
 }
 
-/** Per-IP sliding-window rate limiter (in-memory, single-instance). */
-function createRateLimiter(maxRequests: number, windowMs: number) {
-  const buckets = new Map<string, number[]>();
-  return function limit(ip: string): boolean {
-    const now = Date.now();
-    const cutoff = now - windowMs;
-    const hits = (buckets.get(ip) ?? []).filter(t => t > cutoff);
-    if (hits.length >= maxRequests) return false;
-    hits.push(now);
-    buckets.set(ip, hits);
-    return true;
-  };
-}
-
-const THINKING_BUDGETS: Record<string, number> = {
-  low: 2_000,
-  medium: 8_000,
-  high: 16_000,
-};
-
-function thinkingBudgetFor(level: string | undefined): number | undefined {
-  return level ? THINKING_BUDGETS[level] : undefined;
-}
-
 /**
  * Build a Hono sub-app exposing the ng-chat endpoints. Mount it anywhere:
  *
@@ -149,20 +76,12 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
     apiKey: config.apiKey,
   };
 
-  // Default provider (no thinking). For requests that need thinking we create a
-  // fresh provider with transformRequestBody so the budget_tokens reach the gateway.
-  const defaultProvider = createOpenAICompatible(providerBase);
+  const getProvider = createProviderFactory(providerBase);
 
-  function getProvider(budgetTokens: number | undefined) {
-    if (!budgetTokens) return defaultProvider;
-    return createOpenAICompatible({
-      ...providerBase,
-      transformRequestBody: (body) => ({
-        ...body,
-        thinking: { type: 'enabled', budget_tokens: budgetTokens },
-      }),
-    });
-  }
+  const resolveSystemPrompt: () => string | undefined =
+    typeof config.systemPrompt === 'function'
+      ? config.systemPrompt
+      : () => config.systemPrompt as string | undefined;
 
   const registry = config.tools ?? new ToolRegistry();
   const maxRounds = config.maxToolRounds ?? 8;
@@ -195,22 +114,20 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
   // Compact endpoint — summarises a conversation into a single paragraph so the
   // client can replace its history and reclaim context budget.
   app.post('/compact', async (c) => {
+    // Rate limiting
+    if (checkRate) {
+      const ip = getClientIp(c);
+      if (!checkRate(ip)) {
+        return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
+      }
+    }
+
     try {
       const body = await c.req.json<{ messages: UIMessage[] }>();
       const messages = Array.isArray(body.messages) ? body.messages : [];
 
       // Build a plain-text transcript (text parts only; skip tool calls and files).
-      const transcript = messages
-        .map(m => {
-          const textParts = (m.parts ?? []) as Array<Record<string, unknown>>;
-          const text = textParts
-            .filter(p => p['type'] === 'text' && typeof p['text'] === 'string')
-            .map(p => p['text'] as string)
-            .join(' ');
-          return text ? `${m.role}: ${text}` : null;
-        })
-        .filter(Boolean)
-        .join('\n');
+      const transcript = buildTranscript(messages);
 
       const provider = getProvider(undefined);
       const { text: summary } = await generateText({
@@ -232,6 +149,14 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   // Close endpoint — runs the close skill to extract and persist memories from a conversation.
   app.post('/close', async (c) => {
+    // Rate limiting
+    if (checkRate) {
+      const ip = getClientIp(c);
+      if (!checkRate(ip)) {
+        return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
+      }
+    }
+
     try {
       const body = await c.req.json<{ messages: UIMessage[] }>();
       const messages = Array.isArray(body.messages) ? body.messages : [];
@@ -243,17 +168,7 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
         closeInstruction = readFileSync(closePath, 'utf-8');
       } catch { /* no close.md — use built-in fallback */ }
 
-      const transcript = messages
-        .map(m => {
-          const textParts = (m.parts ?? []) as Array<Record<string, unknown>>;
-          const text = textParts
-            .filter(p => p['type'] === 'text' && typeof p['text'] === 'string')
-            .map(p => p['text'] as string)
-            .join(' ');
-          return text ? `${m.role}: ${text}` : null;
-        })
-        .filter(Boolean)
-        .join('\n');
+      const transcript = buildTranscript(messages, { includeTools: true });
 
       const provider = getProvider(undefined);
       const result = await generateText({
@@ -289,9 +204,7 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
   app.post('/', async (c) => {
     // Rate limiting
     if (checkRate) {
-      const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-        ?? c.req.header('x-real-ip')
-        ?? 'unknown';
+      const ip = getClientIp(c);
       if (!checkRate(ip)) {
         return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
       }
@@ -315,7 +228,8 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
       const provider = getProvider(budgetTokens);
 
       // Count input tokens from the clipped conversation (messages + system prompt).
-      let inputTokens = config.systemPrompt ? countTokens(config.systemPrompt) : 0;
+      const systemPrompt = resolveSystemPrompt();
+      let inputTokens = systemPrompt ? countTokens(systemPrompt) : 0;
       inputTokens += estimateMessagesTokens(messages);
 
       // Accumulate output tokens across all agentic steps.
@@ -323,7 +237,7 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
       const result = streamText({
         model: provider(requestedModel ?? config.defaultModel),
-        system: config.systemPrompt,
+        system: systemPrompt,
         messages: await convertToModelMessages(messages),
         tools: registry.toAiTools(),
         stopWhen: stepCountIs(maxRounds),
@@ -348,3 +262,10 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   return app;
 }
+
+// Re-export lib symbols for backward compat and direct imports.
+export { countTokens, estimateMessagesTokens } from './lib/tokens.js';
+export { clipHistory } from './lib/history.js';
+export { createRateLimiter, getClientIp } from './lib/rate-limit.js';
+export { THINKING_BUDGETS, thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
+export { buildTranscript } from './lib/transcript.js';

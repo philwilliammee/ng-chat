@@ -5,8 +5,9 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
+  "types": "./dist/index.d.ts",
   "dependencies": {
     "gpt-tokenizer": "^3.4.0"
   },

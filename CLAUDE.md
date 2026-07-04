@@ -80,3 +80,7 @@ Copy `.env.example` to `.env` and set `GATEWAY_API_KEY`. Key vars:
 | `THINKING_DEFAULT_LEVEL` | `disabled` |
 
 Dev mode proxies Angular's `/api/*` to `localhost:4315` via `proxy.conf.json`.
+
+## Pending backfill from aisei-agent
+
+Backfilled 2026-07-04. The lib/ split, F1 token fix, rate-limiter sweep, buildTranscript, production build configs, and vitest suite have all been ported from aisei-agent. Nothing further pending.

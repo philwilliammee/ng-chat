@@ -8,3 +8,7 @@ dist
 # Memory files are runtime-generated and user-specific; folder kept via .gitkeep
 skills/memories/*
 !skills/memories/.gitkeep
+
+packages/*/dist
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
