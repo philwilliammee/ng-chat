@@ -245,6 +245,12 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
       const body = await c.req.json<ChatRequestBody>();
       const raw = Array.isArray(body.messages) ? body.messages : [];
 
+      if (raw.some(m => !Array.isArray((m as Record<string, unknown>).parts))) {
+        return c.json({
+          error: 'Messages must use the AI SDK v5+ UIMessage shape with a `parts` array (e.g. {id, role, parts: [{type:"text", text:"…"}]}). The legacy {role, content: string} format is not supported.',
+        }, 400);
+      }
+
       // Validate model against allowlist
       const requestedModel = body.model;
       if (requestedModel && !allowedModels.includes(requestedModel)) {
