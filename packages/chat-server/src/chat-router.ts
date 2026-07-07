@@ -10,10 +10,11 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { ToolRegistry } from './tools/registry.js';
 import { countTokens, estimateMessagesTokens } from './lib/tokens.js';
-import { clipHistory } from './lib/history.js';
+import { clipHistory, slidingCompact } from './lib/history.js';
 import { createRateLimiter, getClientIp } from './lib/rate-limit.js';
-import { thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
+import { THINKING_BUDGETS, thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
 import { buildTranscript } from './lib/transcript.js';
+import { suggestSkills, extractLastUserText } from './lib/skill-suggest.js';
 
 export interface ChatRouterConfig {
   /** OpenAI-compatible base URL (e.g. Cornell gateway `.../v1`). */
@@ -24,9 +25,18 @@ export interface ChatRouterConfig {
   defaultModel: string;
   /** Context window (tokens) reported to the client. */
   contextLimit?: number;
-  /** Max agentic tool-calling rounds per turn. */
+  /** Default max agentic tool-calling rounds per turn. */
   maxToolRounds?: number;
-  /** System prompt prepended to every conversation. */
+  /**
+   * Hard ceiling on per-request maxToolRounds override. Clients may request
+   * up to this many rounds via the request body. Defaults to 30.
+   */
+  maxToolRoundsLimit?: number;
+  /**
+   * System prompt prepended to every conversation.
+   * A function is evaluated on every request so memory indexes and other
+   * dynamic content stay fresh without restarting the server.
+   */
   systemPrompt?: string | (() => string);
   /** Tool registry exposed to the model. Defaults to an empty registry. */
   tools?: ToolRegistry;
@@ -52,6 +62,24 @@ export interface ChatRouterConfig {
    * Files outside this directory are rejected. Defaults to `./skills`.
    */
   contentDir?: string;
+  /**
+   * Max output tokens per model call. Prevents the stream from terminating
+   * mid-JSON on large tool-call arguments. Defaults to 16000.
+   */
+  maxOutputTokens?: number;
+  /**
+   * Skill names the server knows about at startup. When provided, the router
+   * appends a one-line hint to the per-request system prompt if any skill name
+   * keywords match the last user message — nudging the model toward the right
+   * skill without loading its content.
+   */
+  skillSuggestList?: string[];
+  /**
+   * Sliding-window compaction: when the message history exceeds `historyBudget`,
+   * summarize the oldest turns and keep the last `keepTurns` verbatim instead of
+   * hard-dropping them. Disabled by default; enable by providing this object.
+   */
+  slidingCompaction?: { keepTurns?: number };
 }
 
 interface ChatRequestBody {
@@ -59,6 +87,8 @@ interface ChatRequestBody {
   model?: string;
   /** Thinking level requested by the client: 'disabled' | 'low' | 'medium' | 'high' */
   thinkingLevel?: string;
+  /** Per-request tool-round override. Capped server-side at maxToolRoundsLimit. */
+  maxToolRounds?: number;
 }
 
 /**
@@ -85,6 +115,7 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   const registry = config.tools ?? new ToolRegistry();
   const maxRounds = config.maxToolRounds ?? 8;
+  const roundsLimit = config.maxToolRoundsLimit ?? 30;
   const allowedModels = config.allowedModels?.length
     ? config.allowedModels
     : [config.defaultModel];
@@ -212,10 +243,7 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
     try {
       const body = await c.req.json<ChatRequestBody>();
-      const messages = clipHistory(
-        Array.isArray(body.messages) ? body.messages : [],
-        historyBudget,
-      );
+      const raw = Array.isArray(body.messages) ? body.messages : [];
 
       // Validate model against allowlist
       const requestedModel = body.model;
@@ -227,31 +255,79 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
       const budgetTokens = thinkingBudgetFor(thinkingLevel);
       const provider = getProvider(budgetTokens);
 
-      // Count input tokens from the clipped conversation (messages + system prompt).
-      const systemPrompt = resolveSystemPrompt();
-      let inputTokens = systemPrompt ? countTokens(systemPrompt) : 0;
-      inputTokens += estimateMessagesTokens(messages);
+      const modelId = requestedModel ?? config.defaultModel;
 
-      // Accumulate output tokens across all agentic steps.
-      let outputTokens = 0;
+      let messages: UIMessage[];
+      if (config.slidingCompaction && estimateMessagesTokens(raw, modelId) > historyBudget) {
+        const keepTurns = config.slidingCompaction.keepTurns ?? 6;
+        try {
+          const summaryProvider = getProvider(undefined);
+          messages = await slidingCompact(raw, historyBudget, keepTurns, async (transcript) => {
+            const { text } = await generateText({
+              model: summaryProvider(config.defaultModel),
+              messages: [{
+                role: 'user',
+                content: `Summarise the following conversation concisely in 4–8 sentences, preserving all key facts, decisions, and outcomes:\n\n${transcript}`,
+              }],
+            });
+            return text;
+          }, modelId);
+        } catch (err) {
+          console.error('[chat] sliding compaction failed, falling back to clipHistory:', err instanceof Error ? err.message : err);
+          messages = clipHistory(raw, historyBudget);
+        }
+      } else {
+        messages = clipHistory(raw, historyBudget);
+      }
+
+      // Per-request rounds override, capped at server-side limit.
+      const rounds = body.maxToolRounds
+        ? Math.min(Math.max(1, body.maxToolRounds), roundsLimit)
+        : maxRounds;
+
+      const baseSystemPrompt = resolveSystemPrompt();
+      let systemPrompt = baseSystemPrompt;
+      if (config.skillSuggestList?.length) {
+        const userText = extractLastUserText(messages);
+        const suggestions = suggestSkills(userText, config.skillSuggestList);
+        if (suggestions.length > 0) {
+          const hint = `[Skill hint] This message may be relevant to: ${suggestions.map(s => `use_skill("${s}")`).join(', ')}.`;
+          systemPrompt = systemPrompt ? `${systemPrompt}\n\n${hint}` : hint;
+        }
+      }
+
+      let lastPromptTokens = systemPrompt ? countTokens(systemPrompt, modelId) : 0;
+      lastPromptTokens += estimateMessagesTokens(messages, modelId);
+      let totalCompletionTokens = 0;
 
       const result = streamText({
-        model: provider(requestedModel ?? config.defaultModel),
+        model: provider(modelId),
         system: systemPrompt,
-        messages: await convertToModelMessages(messages),
+        messages: await convertToModelMessages(messages, { ignoreIncompleteToolCalls: true }),
         tools: registry.toAiTools(),
-        stopWhen: stepCountIs(maxRounds),
+        stopWhen: stepCountIs(rounds),
+        maxOutputTokens: config.maxOutputTokens ?? 16_000,
         abortSignal: c.req.raw.signal,
-        onStepFinish: ({ text }) => {
-          if (text) outputTokens += countTokens(text);
+        onStepFinish: ({ text, usage }) => {
+          if (usage?.inputTokens) lastPromptTokens = usage.inputTokens;
+          totalCompletionTokens += usage?.outputTokens ?? (text ? countTokens(text, modelId) : 0);
         },
       });
 
       return result.toUIMessageStreamResponse({
         sendReasoning: true,
+        onError: (err) => {
+          if (err && typeof err === 'object' && 'toolInput' in err) {
+            const e = err as { toolName?: string; toolInput?: string };
+            console.error('[chat] invalid tool input for', e.toolName, '— raw input (first 1000 chars):', String(e.toolInput ?? '').slice(0, 1000));
+          }
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error('[chat] stream error:', msg);
+          return msg;
+        },
         messageMetadata: ({ part }) =>
           part.type === 'finish'
-            ? { totalUsage: { promptTokens: inputTokens, completionTokens: outputTokens, totalTokens: inputTokens + outputTokens } }
+            ? { totalUsage: { promptTokens: lastPromptTokens, completionTokens: totalCompletionTokens, totalTokens: lastPromptTokens + totalCompletionTokens } }
             : undefined,
       });
     } catch (err) {
@@ -264,8 +340,9 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 }
 
 // Re-export lib symbols for backward compat and direct imports.
-export { countTokens, estimateMessagesTokens } from './lib/tokens.js';
-export { clipHistory } from './lib/history.js';
+export { countTokens, estimateMessagesTokens, classifyModel } from './lib/tokens.js';
+export { clipHistory, slidingCompact, splitForCompaction, buildSummaryMessages } from './lib/history.js';
 export { createRateLimiter, getClientIp } from './lib/rate-limit.js';
 export { THINKING_BUDGETS, thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
 export { buildTranscript } from './lib/transcript.js';
+export { suggestSkills, extractLastUserText } from './lib/skill-suggest.js';
