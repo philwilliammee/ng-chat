@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   streamText,
   generateText,
@@ -15,6 +15,17 @@ import { createRateLimiter, getClientIp } from './lib/rate-limit.js';
 import { THINKING_BUDGETS, thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
 import { buildTranscript } from './lib/transcript.js';
 import { suggestSkills, extractLastUserText } from './lib/skill-suggest.js';
+import { checkRequestLimits, resolveLimits, type RequestLimits } from './lib/limits.js';
+
+/** Token usage for one completed turn, as reported to `ChatRouterConfig.onUsage`. */
+export interface ChatUsage {
+  /** Rate-limiter key for the caller — see `getClientIp`. */
+  ip: string;
+  model: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
 
 export interface ChatRouterConfig {
   /** OpenAI-compatible base URL (e.g. Cornell gateway `.../v1`). */
@@ -57,6 +68,33 @@ export interface ChatRouterConfig {
    * Set to 0 to disable.
    */
   rateLimit?: { maxRequests: number; windowMs: number };
+  /**
+   * How many reverse proxies you control sit in front of this server, used to
+   * pick a non-forgeable entry out of `X-Forwarded-For` when keying the rate
+   * limiter. Defaults to 1 (a single ALB / nginx). Set 0 when nothing proxies
+   * this server. See `getClientIp`.
+   */
+  trustedProxyHops?: number;
+  /**
+   * Caps on request size, applied before any model call. Merged over
+   * DEFAULT_LIMITS, which are abuse backstops rather than UX limits — tighten
+   * them for any deployment reachable by anonymous callers.
+   */
+  limits?: Partial<RequestLimits>;
+  /**
+   * Whether to stream the model's reasoning parts to the client. Defaults to
+   * true, which suits ng-chat's default posture (a trusted operator, where the
+   * reasoning panel is the point). Set false wherever the caller is not trusted:
+   * reasoning routinely narrates the system prompt and the tool surface.
+   */
+  sendReasoning?: boolean;
+  /**
+   * Called once per completed turn with that turn's token usage. Replaces the
+   * default stdout line, so a host that meters or alarms on spend does not have
+   * to scrape logs. Token counts are undefined when the gateway omits usage —
+   * see `includeUsage` in `lib/thinking.ts`.
+   */
+  onUsage?: (usage: ChatUsage) => void;
   /**
    * Root directory for the read_file / search_files tools.
    * Files outside this directory are rejected. Defaults to `./skills`.
@@ -125,6 +163,15 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
   const checkRate = rateLimitEnabled
     ? createRateLimiter(rl?.maxRequests ?? 60, rl?.windowMs ?? 60_000)
     : null;
+  const trustedProxyHops = config.trustedProxyHops ?? 1;
+  const limits: RequestLimits = resolveLimits(config.limits);
+
+  /** Rate-limit gate shared by all three POST endpoints. Returns a 429 response, or null to proceed. */
+  const rateLimited = (c: Context) => {
+    if (!checkRate) return null;
+    if (checkRate(getClientIp(c, trustedProxyHops))) return null;
+    return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
+  };
 
   const app = new Hono();
 
@@ -132,9 +179,12 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
   // Reserve headroom for the model's response + tool-call overhead.
   const historyBudget = contextLimit - 8_000;
 
-  // Client bootstrap info (model, limits, available tools).
+  // Client bootstrap info (model, limits, available tools). `enabled` is always
+  // true here — it exists so a client can treat this and createStubChatRouter's
+  // /config as one shape and hide the chat surface when the feature is off.
   app.get('/config', (c) =>
     c.json({
+      enabled: true,
       model: config.defaultModel,
       contextLimit,
       allowedModels,
@@ -145,17 +195,17 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
   // Compact endpoint — summarises a conversation into a single paragraph so the
   // client can replace its history and reclaim context budget.
   app.post('/compact', async (c) => {
-    // Rate limiting
-    if (checkRate) {
-      const ip = getClientIp(c);
-      if (!checkRate(ip)) {
-        return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
-      }
-    }
+    const limited = rateLimited(c);
+    if (limited) return limited;
 
     try {
       const body = await c.req.json<{ messages: UIMessage[] }>();
       const messages = Array.isArray(body.messages) ? body.messages : [];
+
+      // Same caps as POST / — this endpoint feeds the whole transcript to
+      // generateText, so an oversized history costs a model call here too.
+      const violation = checkRequestLimits(messages, limits);
+      if (violation) return c.json({ error: violation.error }, violation.status);
 
       // Build a plain-text transcript (text parts only; skip tool calls and files).
       const transcript = buildTranscript(messages);
@@ -180,17 +230,15 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   // Close endpoint — runs the close skill to extract and persist memories from a conversation.
   app.post('/close', async (c) => {
-    // Rate limiting
-    if (checkRate) {
-      const ip = getClientIp(c);
-      if (!checkRate(ip)) {
-        return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
-      }
-    }
+    const limited = rateLimited(c);
+    if (limited) return limited;
 
     try {
       const body = await c.req.json<{ messages: UIMessage[] }>();
       const messages = Array.isArray(body.messages) ? body.messages : [];
+
+      const violation = checkRequestLimits(messages, limits);
+      if (violation) return c.json({ error: violation.error }, violation.status);
 
       // Load close.md from the content directory (falls back to a built-in prompt if missing).
       let closeInstruction = 'Extract the key facts, preferences, and decisions from this conversation. Save each distinct topic as a markdown file under memories/ using write_file. Update memories/_index.md with one-line entries for any new files.';
@@ -233,23 +281,23 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
 
   // Main streaming endpoint — returns a UI Message Stream (SSE).
   app.post('/', async (c) => {
-    // Rate limiting
-    if (checkRate) {
-      const ip = getClientIp(c);
-      if (!checkRate(ip)) {
-        return c.json({ error: 'Too many requests. Please wait before sending another message.' }, 429);
-      }
-    }
+    const limited = rateLimited(c);
+    if (limited) return limited;
 
     try {
       const body = await c.req.json<ChatRequestBody>();
       const raw = Array.isArray(body.messages) ? body.messages : [];
 
-      if (raw.some(m => !Array.isArray((m as Record<string, unknown>).parts))) {
+      if (raw.some(m => !Array.isArray((m as { parts?: unknown }).parts))) {
         return c.json({
           error: 'Messages must use the AI SDK v5+ UIMessage shape with a `parts` array (e.g. {id, role, parts: [{type:"text", text:"…"}]}). The legacy {role, content: string} format is not supported.',
         }, 400);
       }
+
+      // Size caps go before everything below: an oversized request should cost us
+      // a JSON response, not a compaction summary and a streaming gateway call.
+      const violation = checkRequestLimits(raw, limits);
+      if (violation) return c.json({ error: violation.error }, violation.status);
 
       // Validate model against allowlist
       const requestedModel = body.model;
@@ -318,10 +366,24 @@ export function createChatRouter(config: ChatRouterConfig): Hono {
           if (usage?.inputTokens) lastPromptTokens = usage.inputTokens;
           totalCompletionTokens += usage?.outputTokens ?? (text ? countTokens(text, modelId) : 0);
         },
+        // No spend-tracking store here — the default logs to stdout so gateway cost
+        // and abuse trends land in whatever already ingests the process logs.
+        // Metering and alarming are ops-owned; `onUsage` is the seam for them.
+        onFinish: ({ usage, totalUsage }) => {
+          const record: ChatUsage = {
+            ip: getClientIp(c, trustedProxyHops),
+            model: modelId,
+            inputTokens: totalUsage?.inputTokens ?? usage?.inputTokens,
+            outputTokens: totalUsage?.outputTokens ?? usage?.outputTokens,
+            totalTokens: totalUsage?.totalTokens ?? usage?.totalTokens,
+          };
+          if (config.onUsage) config.onUsage(record);
+          else console.log('[chat] usage', record);
+        },
       });
 
       return result.toUIMessageStreamResponse({
-        sendReasoning: true,
+        sendReasoning: config.sendReasoning ?? true,
         onError: (err) => {
           if (err && typeof err === 'object' && 'toolInput' in err) {
             const e = err as { toolName?: string; toolInput?: string };
@@ -352,3 +414,11 @@ export { createRateLimiter, getClientIp } from './lib/rate-limit.js';
 export { THINKING_BUDGETS, thinkingBudgetFor, createProviderFactory } from './lib/thinking.js';
 export { buildTranscript } from './lib/transcript.js';
 export { suggestSkills, extractLastUserText } from './lib/skill-suggest.js';
+export {
+  DEFAULT_LIMITS,
+  resolveLimits,
+  checkRequestLimits,
+  textLength,
+  type RequestLimits,
+  type LimitViolation,
+} from './lib/limits.js';

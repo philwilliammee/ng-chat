@@ -4,12 +4,13 @@ import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic } from '@hono/node-server/serve-static';
 import {
   createChatRouter,
+  createStubChatRouter,
   ToolRegistry,
   createUseSkillTool,
   getTimeTool,
   createReadFileTool,
   createSearchFilesTool,
-  createWriteFileTool,
+  createFileEditorTools,
 } from '@ng-chat/server';
 import { config } from './app.config.js';
 
@@ -23,12 +24,18 @@ app.get('/health', (c) =>
 );
 
 // --- Chat: agentic tool loop ---
+const fileEditorTools = createFileEditorTools([...config.fileEditorRoots], config.fileEditorBackupDir);
+
 const tools = new ToolRegistry()
   .register('use_skill', await createUseSkillTool({ skillsDir: config.skillsDir }))
   .register('get_time', getTimeTool)
   .register('read_file', createReadFileTool(config.contentDir))
   .register('search_files', createSearchFilesTool(config.contentDir))
-  .register('write_file', createWriteFileTool(config.contentDir));
+  .register('write_file', fileEditorTools.write_file)
+  .register('search_code_context', fileEditorTools.search_code_context)
+  .register('edit_file', fileEditorTools.edit_file)
+  .register('batch_edit', fileEditorTools.batch_edit)
+  .register('rollback_changes', fileEditorTools.rollback_changes);
 
 const systemPrompt = [
   'You are a helpful assistant embedded in the ng-chat base template.',
@@ -42,23 +49,49 @@ const systemPrompt = [
   'use your full reasoning capacity before and after any tool calls.',
 ].join(' ');
 
-app.route(
-  '/api/chat',
-  createChatRouter({
-    baseURL: config.gatewayBaseUrl,
-    apiKey: config.gatewayApiKey,
-    defaultModel: config.chatModel,
-    contextLimit: config.contextLimit,
-    maxToolRounds: config.maxToolRounds,
-    systemPrompt,
-    tools,
-    providerName: 'ai-gateway',
-    defaultThinkingLevel: config.thinkingDefaultLevel,
-    allowedModels: config.allowedModels,
-    rateLimit: config.rateLimit,
-    contentDir: config.contentDir,
-  }),
-);
+// Two ways the chat feature can be unavailable, and both need to say so on the
+// first turn rather than as a provider auth error mid-stream: the operator turned
+// it off, or they have not filled in GATEWAY_API_KEY yet.
+const chatRouter = !config.chatEnabled
+  ? createStubChatRouter({
+      enabled: false,
+      message: 'Chat is switched off on this server (CHAT_ENABLED=false).',
+      contextLimit: config.contextLimit,
+      tools: tools.names(),
+    })
+  : !config.gatewayApiKey
+    ? createStubChatRouter({
+        message:
+          'The assistant is not configured yet — set GATEWAY_API_KEY in .env (see .env.example) and restart the server.',
+        contextLimit: config.contextLimit,
+        tools: tools.names(),
+      })
+    : createChatRouter({
+        baseURL: config.gatewayBaseUrl,
+        apiKey: config.gatewayApiKey,
+        defaultModel: config.chatModel,
+        contextLimit: config.contextLimit,
+        maxToolRounds: config.maxToolRounds,
+        maxToolRoundsLimit: config.maxToolRoundsLimit,
+        maxOutputTokens: config.maxOutputTokens,
+        systemPrompt,
+        tools,
+        providerName: 'ai-gateway',
+        defaultThinkingLevel: config.thinkingDefaultLevel,
+        allowedModels: config.allowedModels,
+        rateLimit: config.rateLimit,
+        trustedProxyHops: config.trustedProxyHops,
+        limits: config.chatLimits,
+        contentDir: config.contentDir,
+      });
+
+if (!config.chatEnabled) {
+  console.warn('[chat] disabled by CHAT_ENABLED=false — serving the stub router.');
+} else if (!config.gatewayApiKey) {
+  console.warn('[chat] GATEWAY_API_KEY is not set — serving the stub router.');
+}
+
+app.route('/api/chat', chatRouter);
 
 // --- Static client (production / local mode) ---
 app.use('/*', serveStatic({ root: './dist/client/browser' }));

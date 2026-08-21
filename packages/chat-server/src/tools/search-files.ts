@@ -2,6 +2,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { readdirSync, readFileSync, statSync, realpathSync } from 'fs';
 import { resolve, relative } from 'path';
+import { insideAnyRoot } from './sandbox.js';
 
 const MAX_RESULTS = 20;
 const CONTEXT_LINES = 2;
@@ -42,12 +43,15 @@ export function createSearchFilesTool(contentDir: string) {
     }),
     execute: async ({ query, dir }) => {
       const searchRoot = dir ? resolve(root, dir) : root;
-      // Validate the search root is inside contentDir
-      let realSearch: string;
-      try { realSearch = realpathSync(searchRoot); } catch { realSearch = searchRoot; }
-      if (!realSearch.startsWith(root)) {
+      // Validate the search root is inside contentDir. Delegated to insideAnyRoot
+      // rather than a bare startsWith: a plain prefix test treats a sibling whose
+      // name merely begins with the root ("/app/skills-private" against
+      // "/app/skills") as inside it, and dir="../skills-private" would pass.
+      if (!insideAnyRoot(searchRoot, [root])) {
         return { error: 'Access denied: search directory is outside the content directory.' };
       }
+      let realSearch: string;
+      try { realSearch = realpathSync(searchRoot); } catch { realSearch = searchRoot; }
 
       const files = walkFiles(realSearch, ['.md', '.txt', '.mdx'], root);
       const lowerQuery = query.toLowerCase();

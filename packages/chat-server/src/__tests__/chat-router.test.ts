@@ -56,6 +56,7 @@ import {
   THINKING_BUDGETS,
   createChatRouter,
 } from '../chat-router.js';
+import { createStubChatRouter } from '../stub-router.js';
 import { encode } from 'gpt-tokenizer';
 import { generateText, streamText } from 'ai';
 
@@ -325,6 +326,7 @@ describe('GET /config', () => {
     const res = await app.request('/config');
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, unknown>;
+    expect(body.enabled).toBe(true);
     expect(body.model).toBe('gpt-4o');
     expect(body.contextLimit).toBe(128_000);
     expect(body.allowedModels).toEqual(['gpt-4o', 'gpt-4o-mini']);
@@ -487,5 +489,181 @@ describe('POST /', () => {
       body: JSON.stringify({ messages: [] }),
     });
     expect(vi.mocked(streamText)).toHaveBeenCalledOnce();
+  });
+});
+
+// ─── Request size caps ────────────────────────────────────────────────────────
+
+describe('request size caps', () => {
+  const TIGHT = { ...BASE_CONFIG, limits: { maxMessageChars: 10, maxTotalChars: 25, maxMessages: 3 } };
+  const post = (body: unknown) => ({ method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+  const long = (n: number) => msg('user', [textPart('x'.repeat(n))]);
+
+  beforeEach(() => {
+    vi.mocked(streamText).mockReturnValue({
+      toUIMessageStreamResponse: () => new Response('', { headers: { 'content-type': 'text/event-stream' } }),
+    } as never);
+    vi.mocked(generateText).mockResolvedValue({ text: 'x', steps: [] } as never);
+  });
+
+  it('rejects an over-long single message with 400 on POST /', async () => {
+    const app = createChatRouter(TIGHT);
+    const res = await app.request('/', post({ messages: [long(11)] }));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('too long');
+  });
+
+  it('rejects an over-long conversation with 413 on POST /', async () => {
+    const app = createChatRouter(TIGHT);
+    const res = await app.request('/', post({ messages: [long(9), long(9), long(9)] }));
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects too many messages with 413 on POST /', async () => {
+    const app = createChatRouter(TIGHT);
+    const res = await app.request('/', post({ messages: [long(1), long(1), long(1), long(1)] }));
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects before reaching the gateway', async () => {
+    const app = createChatRouter(TIGHT);
+    await app.request('/', post({ messages: [long(11)] }));
+    expect(vi.mocked(streamText)).not.toHaveBeenCalled();
+  });
+
+  it('rejects an oversized message before the model allowlist check', async () => {
+    // Both would 400; the size cap must win, otherwise an oversized body has
+    // already been parsed and measured for nothing.
+    const app = createChatRouter(TIGHT);
+    const res = await app.request('/', post({ messages: [long(11)], model: 'not-allowed' }));
+    expect(((await res.json()) as { error: string }).error).toContain('too long');
+  });
+
+  it('applies the caps to POST /compact', async () => {
+    const app = createChatRouter(TIGHT);
+    const res = await app.request('/compact', post({ messages: [long(11)] }));
+    expect(res.status).toBe(400);
+    expect(vi.mocked(generateText)).not.toHaveBeenCalled();
+  });
+
+  it('applies the caps to POST /close', async () => {
+    const app = createChatRouter(TIGHT);
+    const res = await app.request('/close', post({ messages: [long(9), long(9), long(9)] }));
+    expect(res.status).toBe(413);
+    expect(vi.mocked(generateText)).not.toHaveBeenCalled();
+  });
+
+  it('lets a large paste through on the default limits', async () => {
+    // Kept modest on purpose: this goes through the real tokenizer, and the
+    // generosity of DEFAULT_LIMITS itself is asserted in lib.test.ts where the
+    // check is pure. 12k chars is already past any cap worth calling tight.
+    const app = createChatRouter(BASE_CONFIG);
+    const res = await app.request('/', post({ messages: [long(12_000)] }));
+    expect(res.status).toBe(200);
+  });
+});
+
+// ─── sendReasoning ────────────────────────────────────────────────────────────
+
+describe('sendReasoning', () => {
+  function captureStreamOptions() {
+    const spy = vi.fn().mockReturnValue(new Response('', { headers: { 'content-type': 'text/event-stream' } }));
+    vi.mocked(streamText).mockReturnValue({ toUIMessageStreamResponse: spy } as never);
+    return spy;
+  }
+
+  const post = { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ messages: [] }) };
+
+  it('defaults to true', async () => {
+    const spy = captureStreamOptions();
+    await createChatRouter(BASE_CONFIG).request('/', post);
+    expect(spy.mock.calls.at(-1)![0]).toMatchObject({ sendReasoning: true });
+  });
+
+  it('can be switched off for untrusted callers', async () => {
+    const spy = captureStreamOptions();
+    await createChatRouter({ ...BASE_CONFIG, sendReasoning: false }).request('/', post);
+    expect(spy.mock.calls.at(-1)![0]).toMatchObject({ sendReasoning: false });
+  });
+});
+
+describe('usage reporting', () => {
+  // Drive the onFinish callback streamText was handed, as the SDK would.
+  async function finishTurn(config: Partial<Parameters<typeof createChatRouter>[0]>, headers: Record<string, string> = {}) {
+    vi.mocked(streamText).mockImplementation(((opts: { onFinish?: (e: unknown) => void }) => {
+      opts.onFinish?.({ usage: { inputTokens: 11, outputTokens: 22, totalTokens: 33 }, totalUsage: undefined });
+      return { toUIMessageStreamResponse: () => new Response('') } as never;
+    }) as never);
+    await createChatRouter({ ...BASE_CONFIG, ...config }).request('/', {
+      method: 'POST',
+      headers: { ...JSON_HEADERS, ...headers },
+      body: JSON.stringify({ messages: [] }),
+    });
+  }
+
+  it('hands a completed turn to onUsage instead of stdout', async () => {
+    const onUsage = vi.fn();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await finishTurn({ onUsage }, { 'x-forwarded-for': 'forged, real' });
+    expect(onUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ ip: 'real', inputTokens: 11, outputTokens: 22, totalTokens: 33 }),
+    );
+    expect(log).not.toHaveBeenCalledWith('[chat] usage', expect.anything());
+    log.mockRestore();
+  });
+
+  it('logs to stdout when no hook is provided', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await finishTurn({});
+    expect(log).toHaveBeenCalledWith('[chat] usage', expect.objectContaining({ totalTokens: 33 }));
+    log.mockRestore();
+  });
+});
+
+// ─── Stub router ──────────────────────────────────────────────────────────────
+
+describe('createStubChatRouter', () => {
+  const CONFIG = { message: 'Set GATEWAY_API_KEY in .env.', contextLimit: 4_000, tools: ['get_time'] };
+  const post = { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ messages: [] }) };
+
+  it('reports the same /config shape as the real router', async () => {
+    const real = await (await createChatRouter(BASE_CONFIG).request('/config')).json() as Record<string, unknown>;
+    const stub = await (await createStubChatRouter(CONFIG).request('/config')).json() as Record<string, unknown>;
+    expect(Object.keys(stub).sort()).toEqual(Object.keys(real).sort());
+  });
+
+  it('reports enabled:true by default — configured wrong, not switched off', async () => {
+    const body = await (await createStubChatRouter(CONFIG).request('/config')).json() as Record<string, unknown>;
+    expect(body).toMatchObject({ enabled: true, model: null, contextLimit: 4_000, allowedModels: [], tools: ['get_time'] });
+  });
+
+  it('reports enabled:false when the feature is switched off', async () => {
+    const app = createStubChatRouter({ ...CONFIG, enabled: false });
+    const body = await (await app.request('/config')).json() as Record<string, unknown>;
+    expect(body.enabled).toBe(false);
+  });
+
+  it('streams the message as a real UI message stream', async () => {
+    const res = await createStubChatRouter(CONFIG).request('/', post);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/event-stream');
+    const text = await res.text();
+    expect(text).toContain('text-delta');
+    expect(text).toContain('Set GATEWAY_API_KEY');
+  });
+
+  it('never calls a model provider', async () => {
+    await createStubChatRouter(CONFIG).request('/', post);
+    expect(vi.mocked(streamText)).not.toHaveBeenCalled();
+    expect(vi.mocked(generateText)).not.toHaveBeenCalled();
+  });
+
+  it('answers /compact and /close with 503 and the reason', async () => {
+    const app = createStubChatRouter(CONFIG);
+    for (const path of ['/compact', '/close']) {
+      const res = await app.request(path, post);
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { error: string }).error).toBe(CONFIG.message);
+    }
   });
 });

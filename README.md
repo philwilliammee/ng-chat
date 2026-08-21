@@ -67,6 +67,10 @@ npm run run:local         # builds the client, then runs the server via tsx
 | `CHAT_CONTEXT_LIMIT` | `200000` | Max context tokens passed to the model |
 | `SKILLS_DIR` | `./skills` | Directory of `<skill>.md` files |
 | `THINKING_DEFAULT_LEVEL` | `disabled` | Server-side default thinking level (`disabled \| low \| medium \| high`). Clients override per-turn via Settings. Only effective with Claude 3.7+ on an Anthropic-compatible gateway. |
+| `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | `60` / `60000` | Per-IP sliding window on the chat endpoints. `0` disables. |
+| `TRUSTED_PROXY_HOPS` | `1` | Reverse proxies you control in front of this server. The limiter counts back this many entries from the end of `X-Forwarded-For`, since only proxy-appended entries are trustworthy. `0` = no proxy (every caller shares one bucket). |
+| `CHAT_ENABLED` | `true` | `false` / `0` / `no` / `off` mounts a stub router that explains the feature is off instead of failing mid-stream. |
+| `CHAT_MAX_MESSAGE_CHARS` / `CHAT_MAX_TOTAL_CHARS` / `CHAT_MAX_MESSAGES` | `100000` / `1000000` / `500` | Request size caps, checked before any model call. Sized as abuse backstops so pasting a source file still works — tighten by ~10× for anonymous callers. |
 
 ## Embedding in your own app
 
@@ -185,14 +189,37 @@ The `use_skill` tool discovers it automatically. The model calls `use_skill({ na
 
 ## Security & production hardening
 
-This is a starter template, not a hardened production service. Before exposing it to the internet:
+This is a starter template, not a hardened production service. Some abuse controls ship in the
+box; the ones that need a decision about *your* deployment do not.
 
-- **Add authentication** — there is no auth on `/api/chat` by default
-- **Add rate limiting** — the chat endpoint accepts unlimited requests
-- **Restrict model selection** — clients can pass any `model` in the request body; add an allowlist if needed
-- **Add CORS** — use Hono's `cors()` middleware if serving from a different origin
+Already here:
 
-These are intentionally omitted to keep the template simple.
+- **Per-IP rate limiting** on all three chat endpoints (`RATE_LIMIT_MAX`), keyed on a
+  proxy-appended `X-Forwarded-For` entry — set `TRUSTED_PROXY_HOPS` to match your deployment,
+  or the key is either client-forgeable or shared by every visitor
+- **Request size caps** before any model call (`CHAT_MAX_*`), defaulted generously; tighten
+  them by roughly an order of magnitude for anonymous callers. These bound what reaches the
+  *model* — they count visible text on an already-parsed body, so they are not a byte limit
+- **Model allowlist** — clients may only request a model in `ALLOWED_MODELS`
+- **Content sandbox** — `read_file` / `search_files` reject paths outside `CONTENT_DIR`
+- **Usage accounting** — per-turn token counts go to stdout, or to your own `onUsage` hook
+
+Still yours to add before exposing it to the internet:
+
+- **Authentication** — there is no auth on `/api/chat`. This is the big one: the caps above
+  bound what one anonymous caller costs you, they do not stop them calling.
+- **A body size limit** — add Hono's `bodyLimit()` to the POST routes, or cap the body at your
+  proxy. The `CHAT_MAX_*` caps above do not do this.
+- **CSRF protection** — no token check on the POST endpoints. Relevant as soon as the
+  endpoints sit behind a cookie session. Note that `hono/csrf` will *not* do it: it only
+  inspects form-like content types, so a JSON chat POST gets nothing.
+- **CORS** — use Hono's `cors()` middleware if serving from a different origin
+- **`sendReasoning: false`** — reasoning routinely narrates the system prompt and the tool
+  surface. The default suits a trusted operator; switch it off for anyone else.
+- **Alarming** — usage is reported, not watched
+
+Each of these, plus the reasoning behind the shipped defaults, is written up in
+[`docs/chat-hardening.md`](docs/chat-hardening.md).
 
 ## License
 

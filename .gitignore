@@ -12,3 +12,6 @@ skills/memories/*
 packages/*/dist
 packages/*/src/**/*.js
 packages/*/src/**/*.d.ts
+
+# vitest --coverage output
+coverage/

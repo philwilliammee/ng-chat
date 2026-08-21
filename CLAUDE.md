@@ -81,6 +81,30 @@ Copy `.env.example` to `.env` and set `GATEWAY_API_KEY`. Key vars:
 
 Dev mode proxies Angular's `/api/*` to `localhost:4315` via `proxy.conf.json`.
 
-## Pending backfill from aisei-agent
+## Backfills from downstream forks
 
-Backfilled 2026-07-04. The lib/ split, F1 token fix, rate-limiter sweep, buildTranscript, production build configs, and vitest suite have all been ported from aisei-agent. Nothing further pending.
+Two projects hold hand-ported forks of this template's chat stack and harden them in place.
+When they do, the fixes come back here. Both directions are recorded so a future reader can
+tell a deliberate divergence from an oversight.
+
+**aisei-agent — backfilled 2026-07-04.** The lib/ split, F1 token fix, rate-limiter sweep,
+buildTranscript, production build configs, and vitest suite. Nothing further pending.
+
+**aisei-site — Tier 1 & 2 backfilled 2026-08-19.** XFF read from the trusted end,
+`search_files` sandbox boundary, request size caps, `includeUsage`, usage logging, a stub
+router for the unconfigured case, configurable `sendReasoning`. Three of those are
+deliberately *not* verbatim ports — aisei-site is a public marketing site and this is a
+template, so the hop count, the cap sizes, and the `sendReasoning` default all differ, with
+the reasoning recorded inline. **CSRF and Tier 3 are still open** — CSRF because its token
+plumbing crosses the `@ng-chat/server` ↔ `@ng-chat/ui` boundary and is a contract decision
+rather than a bug fix. [docs/chat-hardening.md](docs/chat-hardening.md) has both halves — what
+shipped in Part 1, what is still open in Part 2.
+
+Two things to know before touching either:
+
+- **CSRF.** `hono/csrf` only inspects form-like content types, so it provides **zero**
+  protection on an `application/json` chat POST, and Angular's `HttpClient` XSRF interceptor
+  never sees the streaming request because the AI SDK transport uses raw `fetch`.
+- **The size caps are not a byte bound.** `checkRequestLimits` runs on an already-parsed body
+  and counts visible text only; `file` and `tool-*` parts pass unmeasured. Bounding bytes needs
+  `bodyLimit`, which is Part 2 §1 and deliberately not done.
