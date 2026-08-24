@@ -19,9 +19,44 @@ npm run start
 
 # Build client then serve via the Hono server
 npm run run:local
+
+# Tests (vitest, 280 tests in 11 files)
+npm run test
+npm run test:watch
+npm run test:coverage
+
+# check + coverage — the gate before a PR
+npm run verify
 ```
 
-No test suite is configured. Type-check with `npm run check` before committing.
+Run `npm run verify` before committing, not just `npm run check`. `check` is the
+type-check plus production build; `verify` adds the coverage-gated suite. They are
+separate so the fast one stays fast.
+
+## Testing
+
+Full detail is in [README.md → Testing](README.md#testing). The parts that change how you
+write code here:
+
+- **One config**, `vitest.config.ts`, covering server, client and the package.
+  `environment: 'node'` — **components cannot be rendered**, deliberately. Services,
+  guards, route tables and pure functions are what is reachable; see the README table.
+- **`import '@angular/compiler';` must be the first import** of any client test that
+  touches Angular DI or loads a component. Angular ships partially compiled and falls back
+  to JIT here.
+- **Server tests use `app.request()`** — a real `Response` through the whole middleware
+  chain, no port, no supertest. For anything environment-dependent, `vi.stubEnv` +
+  `vi.resetModules()` + dynamic `import()`: both `server/app.ts` and `server/app.config.ts`
+  do their work at import time.
+- **Assert `app.routes`, not status codes**, when the point is that a route is absent.
+  `serveStatic` on `/*` answers 200 with the SPA shell once `dist/` exists.
+- **Coverage floors are measured, not aspirational**, and per-glob. `server/**` and
+  `client/app/**` are pinned at 100% on all four metrics — new code there needs a test in
+  the same commit. The package's floors sit where the package actually is; the largest gap
+  is `tools/file-editor/**` at ~5%, which is the obvious next piece of work.
+- **Three known defects are pinned by tests rather than fixed** (rate-limit config `NaN`,
+  `ChatConfigService`'s no-retry latch, two `history.ts` edge cases). Each test names the
+  fix. If you fix one, flip its assertion in the same change.
 
 ## Architecture
 

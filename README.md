@@ -187,6 +187,145 @@ echo "# My Skill\n\nInstructions for the assistant..." > skills/my-skill.md
 
 The `use_skill` tool discovers it automatically. The model calls `use_skill({ name: 'my-skill' })` to load the instructions mid-conversation.
 
+## Testing
+
+```bash
+npm run test           # 280 tests, 11 files, about half a second
+npm run test:watch
+npm run test:coverage  # + coverage, fails if a threshold slips
+npm run verify         # check + coverage — run before opening a PR
+```
+
+Vitest, one config at `vitest.config.ts` for the whole repo. Server and client tests sit
+next to their subject as `*.test.ts`; the package keeps its suites in
+`packages/chat-server/src/__tests__/`, which is where they already were.
+
+Note `check` and `verify` are separate on purpose: `check` is the fast type-check +
+production build, `verify` is that plus coverage. CI and pre-PR should run `verify`.
+
+### What the suite covers
+
+| File | Tests | Subject |
+|------|-------|---------|
+| `server/app.test.ts` | 17 | Assembled app — `/health`, security headers, the three-way router choice, the nine-tool registry, static-vs-API precedence |
+| `server/app.config.test.ts` | 29 | Env parsing: defaults, the two coercion idioms and what each does with `0`, `isOff()` spellings, the model allowlist, the file-editor sandbox roots |
+| `client/app/app.routes.test.ts` | 16 | Nav contracts, wildcard placement, guard/roles sync, and every lazy loader invoked for real |
+| `client/app/services/chat-config.service.test.ts` | 10 | Bootstrap fetch, the one-request latch, the `??` fallback, and what happens when the fetch fails |
+| `client/app/services/model-preference.service.test.ts` | 10 | Persistence, restore, and surviving an absent `localStorage` |
+| `client/app/services/thinking-preference.service.test.ts` | 23 | The same, plus validation against the four legal thinking levels |
+| `packages/chat-server/src/__tests__/chat-router.test.ts` | 63 | Request validation, limits, model allowlist, the compact/close endpoints |
+| `packages/chat-server/src/__tests__/lib.test.ts` | 45 | Tokens, transcripts, rate limiting, clipping |
+| `packages/chat-server/src/__tests__/history.test.ts` | 27 | Compaction — splitting, summary messages, `slidingCompact`, budget edges |
+| `packages/chat-server/src/__tests__/skill-suggest.test.ts` | 31 | Keyword matching, ranking, and `extractLastUserText` |
+| `packages/chat-server/src/__tests__/tools.test.ts` | 9 | Tool registry and the content sandbox |
+
+Two of these earn their place for reasons a code review would not surface.
+`app.config.test.ts` pins which fields treat `0` as a real value and which swallow it —
+`TRUSTED_PROXY_HOPS=0` means "trust no `X-Forwarded-For` entry", and collapsing it to the
+default of 1 gives you a rate limiter a client can walk past. `skill-suggest.test.ts`
+covers a file that was at 0%: its output is prepended to the system prompt on every
+turn, so a scoring change alters what the model is told with no failing request anywhere.
+
+Three defects were found while writing this suite and are **pinned, not fixed**, so that
+the change adding tests does not also change runtime behaviour. Each test names the fix:
+
+- `RATE_LIMIT_MAX=sixty` yields `NaN` (bare `parseInt`, no fallback), so a typo in a
+  `.env` silently changes limiter behaviour — `server/app.config.test.ts`
+- `ChatConfigService` sets its one-request latch before the request and never clears it,
+  so a single failed bootstrap fetch leaves an empty model picker with no retry and
+  nothing logged — `client/app/services/chat-config.service.test.ts`
+- `clipHistory` returns an over-budget history unchanged when it contains no user
+  messages, and `splitForCompaction(messages, 0)` returns the whole conversation as
+  *both* halves — `packages/chat-server/src/__tests__/history.test.ts`
+
+### Writing server tests
+
+Use `app.request('/path')`. Hono's dispatcher returns a real `Response` with the entire
+middleware chain applied, so there is no port to bind, no `supertest`, and no teardown:
+
+```ts
+const res = await app.request('/api/chat/config');
+expect(res.status).toBe(200);
+```
+
+`server/app.ts` does its work at import time — a top-level `await`, a tool registry, and
+a router chosen from `config` — so anything environment-dependent has to be tested by
+re-importing the module with the environment stubbed:
+
+```ts
+async function loadApp(env: Record<string, string>) {
+  for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+  vi.resetModules();
+  return (await import('./app.js')).app;
+}
+```
+
+The same pattern covers `app.config.ts`, whose `config` is a module-level `as const`.
+Keep `.js` extensions on relative imports, same as the rest of the server code.
+
+### Writing client tests
+
+The environment is `node`. There is no DOM and no Angular template compilation step, so
+**components cannot be rendered** — no `TestBed`, no `ComponentFixture`, nothing that
+reaches a template. What is reachable:
+
+| Kind | How |
+|------|-----|
+| Plain data (route tables, constants) | Import and assert directly |
+| Pure classes and functions | Import and call |
+| `@Injectable()` services | `Injector.create({ providers: [...] })` with fake collaborators |
+| Functional guards, resolvers, interceptors | `runInInjectionContext(injector, () => guard(route, state))` |
+
+Every client test that touches DI or loads a component needs `import '@angular/compiler';`
+as its **very first** import: Angular's packages ship partially compiled and fall back to
+JIT here.
+
+This ceiling is a deliberate dependency decision, not an oversight — adding `jsdom`,
+`happy-dom` or `@analogjs/vitest-angular` is a change worth discussing rather than
+slipping in, and every project in `aii-workspace` that tests today made the same call.
+The route tests recover much of the value anyway: they invoke every `loadChildren` and
+`loadComponent` for real, which catches renamed or moved exports that both `ng build` and
+`tsc --noEmit` miss, because the import sits inside an arrow function neither of them calls.
+
+Two service-test details are load-bearing. Stub `localStorage` **before**
+`Injector.create` — the preference services read it in a field initializer. And a
+`subscribe({ next })` with no `error` callback routes failures to rxjs's global
+`onUnhandledError`, which rethrows on a macrotask and fails the run as an uncaught
+exception even when every assertion passed; swap the hook for a spy and assert on it.
+
+### Coverage
+
+Per-glob thresholds set at **measured** coverage, not at an aspiration — a floor above
+where the code sits fails on day one and gets deleted a week later. The floors that were
+here before this suite were a flat 70% and were already red; nobody saw it, because
+`check` ran `vitest run` without `--coverage`.
+
+| Glob | Lines | Notes |
+|------|-------|-------|
+| `server/**` | 100% | Hard ratchet on all four metrics |
+| `client/app/**` | 100% | Hard ratchet on all four metrics |
+| `packages/chat-server/src/lib/**` | ~97% | Gaps: rate-limit's `setInterval` sweep, one `tokens.ts` fallback |
+| `packages/chat-server/src/*.ts` | ~78% | `chat-router.ts` streaming paths need a fake provider |
+| `packages/chat-server/src/tools/*.ts` | ~61% | `write-file.ts` is at 0% |
+| `packages/chat-server/src/tools/file-editor/**` | ~5% | Four services, ~520 statements — the largest gap in the repo |
+
+`server/` and `client/` are pinned at 100% because they are the two directories a project
+built on this template edits: the copy you start from has no untested lines in the code
+you are about to change. New code there without a test fails the gate; add the test in the
+same commit.
+
+### Two things that will bite you
+
+**Assert route registration, not status, when the point is "this route does not exist."**
+`serveStatic` is mounted on `/*`, so after `npm run build` an unregistered path returns
+200 and `index.html`. Use `app.routes` — the table Hono matches against — which is immune
+to build state.
+
+**Run the suite in both build states.** `rm -rf dist && npm test`, then
+`npm run build && npm test`. `server/tsconfig.build.json` keeps tests out of `dist/`, and
+`vitest.config.ts` excludes `dist/**` as a second line of defence: without both, `tsc`
+emits `*.test.js` and Vitest's default globs silently run every server suite twice.
+
 ## Security & production hardening
 
 This is a starter template, not a hardened production service. Some abuse controls ship in the
