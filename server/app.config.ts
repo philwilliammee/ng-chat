@@ -84,9 +84,13 @@ export const config = {
   allowedModels: rawAllowedModels
     ? rawAllowedModels.split(',').map(s => s.trim()).filter(Boolean)
     : [defaultModel],
+  // optionalInt, not bare parseInt: `RATE_LIMIT_MAX=0` is how rate limiting is
+  // switched off and has to survive, but `RATE_LIMIT_MAX=sixty` used to yield NaN,
+  // and every comparison against NaN is false — so a typo left a limiter that
+  // neither blocked nor cleanly disabled, with no error anywhere.
   rateLimit: {
-    maxRequests: parseInt(typedEnv.RATE_LIMIT_MAX || '60', 10),
-    windowMs: parseInt(typedEnv.RATE_LIMIT_WINDOW_MS || '60000', 10),
+    maxRequests: optionalInt(typedEnv.RATE_LIMIT_MAX) ?? 60,
+    windowMs: optionalInt(typedEnv.RATE_LIMIT_WINDOW_MS) ?? 60_000,
   },
   trustedProxyHops: optionalInt(typedEnv.TRUSTED_PROXY_HOPS) ?? 1,
   chatEnabled: !isOff(typedEnv.CHAT_ENABLED),

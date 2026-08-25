@@ -20,7 +20,7 @@ npm run start
 # Build client then serve via the Hono server
 npm run run:local
 
-# Tests (vitest, 280 tests in 11 files)
+# Tests (vitest, 285 tests in 11 files)
 npm run test
 npm run test:watch
 npm run test:coverage
@@ -54,9 +54,10 @@ write code here:
   `client/app/**` are pinned at 100% on all four metrics — new code there needs a test in
   the same commit. The package's floors sit where the package actually is; the largest gap
   is `tools/file-editor/**` at ~5%, which is the obvious next piece of work.
-- **Three known defects are pinned by tests rather than fixed** (rate-limit config `NaN`,
-  `ChatConfigService`'s no-retry latch, two `history.ts` edge cases). Each test names the
-  fix. If you fix one, flip its assertion in the same change.
+- **One known defect is pinned by a test rather than fixed** — two `history.ts` edge
+  cases in the package (`clipHistory` with no user messages; `splitForCompaction(msgs, 0)`).
+  The test names the fix; flip its assertion in the same change. The other two found by
+  this suite (rate-limit config `NaN`, `ChatConfigService`'s no-retry latch) are fixed.
 
 ## Architecture
 
