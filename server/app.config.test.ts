@@ -133,22 +133,32 @@ describe('numeric parsing', () => {
     expect(config.rateLimit.maxRequests).toBe(0);
   });
 
-  it('yields NaN for an unparseable RATE_LIMIT_MAX', async () => {
-    // A found wart, asserted so it is visible rather than surprising.
-    //
-    // rateLimit uses bare parseInt with no `|| default` and no optionalInt, so
-    // RATE_LIMIT_MAX=sixty produces NaN. Every comparison against NaN is false,
-    // so the limiter neither blocks nor cleanly disables — it depends on which
-    // way the package's comparison runs. A typo in a .env therefore changes the
-    // rate limiter's behaviour with no error anywhere.
-    //
-    // Fix, when someone does it: route both rateLimit fields through
-    // optionalInt() with `?? 60` / `?? 60000`, which keeps the meaningful 0 and
-    // rejects junk. Then change these two expectations.
+  it('falls back to the defaults for an unparseable rate limit', async () => {
+    // Was a found wart, fixed in the same PR that added this file. Both fields
+    // used bare parseInt with no fallback, so RATE_LIMIT_MAX=sixty produced NaN —
+    // and since every comparison against NaN is false, the limiter neither
+    // blocked nor cleanly disabled. A typo in a .env silently changed how the
+    // rate limiter behaved, with no error anywhere. Now junk fails towards the
+    // shipped defaults, which is the safe direction: it limits.
     const config = await loadConfig({ RATE_LIMIT_MAX: 'sixty', RATE_LIMIT_WINDOW_MS: 'a minute' });
 
-    expect(config.rateLimit.maxRequests).toBeNaN();
-    expect(config.rateLimit.windowMs).toBeNaN();
+    expect(config.rateLimit.maxRequests).toBe(60);
+    expect(config.rateLimit.windowMs).toBe(60_000);
+  });
+
+  it('falls back for a blank rate limit too', async () => {
+    // `RATE_LIMIT_MAX=` in a .env is the common shape of this mistake.
+    const config = await loadConfig({ RATE_LIMIT_MAX: '', RATE_LIMIT_WINDOW_MS: '  ' });
+
+    expect(config.rateLimit.maxRequests).toBe(60);
+    expect(config.rateLimit.windowMs).toBe(60_000);
+  });
+
+  it('still parses a real override', async () => {
+    const config = await loadConfig({ RATE_LIMIT_MAX: '10', RATE_LIMIT_WINDOW_MS: '5000' });
+
+    expect(config.rateLimit.maxRequests).toBe(10);
+    expect(config.rateLimit.windowMs).toBe(5000);
   });
 });
 

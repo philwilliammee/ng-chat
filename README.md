@@ -190,7 +190,7 @@ The `use_skill` tool discovers it automatically. The model calls `use_skill({ na
 ## Testing
 
 ```bash
-npm run test           # 280 tests, 11 files, about half a second
+npm run test           # 285 tests, 11 files, about half a second
 npm run test:watch
 npm run test:coverage  # + coverage, fails if a threshold slips
 npm run verify         # check + coverage — run before opening a PR
@@ -208,9 +208,9 @@ production build, `verify` is that plus coverage. CI and pre-PR should run `veri
 | File | Tests | Subject |
 |------|-------|---------|
 | `server/app.test.ts` | 17 | Assembled app — `/health`, security headers, the three-way router choice, the nine-tool registry, static-vs-API precedence |
-| `server/app.config.test.ts` | 29 | Env parsing: defaults, the two coercion idioms and what each does with `0`, `isOff()` spellings, the model allowlist, the file-editor sandbox roots |
+| `server/app.config.test.ts` | 31 | Env parsing: defaults, the two coercion idioms and what each does with `0`, rate-limit fallbacks, `isOff()` spellings, the model allowlist, the file-editor sandbox roots |
 | `client/app/app.routes.test.ts` | 16 | Nav contracts, wildcard placement, guard/roles sync, and every lazy loader invoked for real |
-| `client/app/services/chat-config.service.test.ts` | 10 | Bootstrap fetch, the one-request latch, the `??` fallback, and what happens when the fetch fails |
+| `client/app/services/chat-config.service.test.ts` | 15 | Bootstrap fetch, the latch's two halves (coalesce synchronous callers, release on error), the `??` fallback, and recovery on retry |
 | `client/app/services/model-preference.service.test.ts` | 10 | Persistence, restore, and surviving an absent `localStorage` |
 | `client/app/services/thinking-preference.service.test.ts` | 23 | The same, plus validation against the four legal thinking levels |
 | `packages/chat-server/src/__tests__/chat-router.test.ts` | 63 | Request validation, limits, model allowlist, the compact/close endpoints |
@@ -226,17 +226,25 @@ default of 1 gives you a rate limiter a client can walk past. `skill-suggest.tes
 covers a file that was at 0%: its output is prepended to the system prompt on every
 turn, so a scoring change alters what the model is told with no failing request anywhere.
 
-Three defects were found while writing this suite and are **pinned, not fixed**, so that
-the change adding tests does not also change runtime behaviour. Each test names the fix:
+Three defects were found while writing this suite. **Two are fixed**, each with the test
+that found it flipped to assert the fixed behaviour:
 
-- `RATE_LIMIT_MAX=sixty` yields `NaN` (bare `parseInt`, no fallback), so a typo in a
-  `.env` silently changes limiter behaviour — `server/app.config.test.ts`
-- `ChatConfigService` sets its one-request latch before the request and never clears it,
-  so a single failed bootstrap fetch leaves an empty model picker with no retry and
-  nothing logged — `client/app/services/chat-config.service.test.ts`
+- `RATE_LIMIT_MAX`/`RATE_LIMIT_WINDOW_MS` used a bare `parseInt` with no fallback, so
+  `RATE_LIMIT_MAX=sixty` was `NaN` — and since every comparison against `NaN` is false,
+  the limiter neither blocked nor cleanly disabled. Junk now falls back to the shipped
+  defaults, which is the safe direction; `RATE_LIMIT_MAX=0` still means "off".
+- `ChatConfigService` latched before its request and never released, so one failed
+  bootstrap fetch left an empty model picker for the life of the page with nothing
+  logged. It now releases on error and logs which URL failed, while still coalescing
+  synchronous callers — both halves are asserted, since a fix to either can break the other.
+
+The third is **pinned, not fixed**, because it is in the package and changing compaction
+behaviour is not a test-suite change — see `packages/chat-server/src/__tests__/history.test.ts`,
+which names the fix:
+
 - `clipHistory` returns an over-budget history unchanged when it contains no user
   messages, and `splitForCompaction(messages, 0)` returns the whole conversation as
-  *both* halves — `packages/chat-server/src/__tests__/history.test.ts`
+  *both* halves, which makes `slidingCompact` pay for a summary it then throws away.
 
 ### Writing server tests
 

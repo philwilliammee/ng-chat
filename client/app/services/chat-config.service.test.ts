@@ -6,11 +6,11 @@
 // A fake with `get()` returning a caller-chosen observable covers the same ground
 // and is easier to read.
 //
-// The behaviour under test is the `loaded` latch. It is right — two components
-// injecting this service must not produce two requests — but it is also
-// irreversible, and the service has NO error handler, so a failed first load
-// latches the service permanently empty. That is asserted below as a defect, not
-// as intent.
+// The behaviour under test is the `loaded` latch, which has to hold two things at
+// once: two components injecting this service must not produce two requests, and a
+// first load that fails must not leave the service permanently empty. It used to
+// do only the first — the latch was irreversible and there was no error handler at
+// all. Both halves are asserted below, since a fix to either can break the other.
 import '@angular/compiler';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Injector } from '@angular/core';
@@ -127,26 +127,28 @@ describe('the loaded latch', () => {
 });
 
 describe('failure handling', () => {
-  // `subscribe({ next })` with no `error` callback does not throw at the call
-  // site — rxjs routes the error to its global unhandled-error hook, which
-  // defaults to rethrowing on a macrotask. In a browser that lands on
-  // window.onerror; under Vitest it is an uncaught exception that fails the run
-  // even though every assertion passed. So the hook is captured here rather than
-  // suppressed, which turns the noise into the assertion: the error genuinely
-  // escapes the service.
+  // The service now has an `error` handler, so nothing reaches rxjs's global
+  // unhandled-error hook. The hook is still captured here, and asserted NOT to
+  // fire: without a handler rxjs rethrows on a macrotask, which is window.onerror
+  // in a browser and an uncaught exception that fails the run under Vitest even
+  // when every assertion passes. That is the regression this guards against.
+  //
   // Typed `(err: unknown) => void` rather than a bare `vi.fn()`, which infers a
   // signature rxjs's `((err: any) => void) | null` will not accept.
   let unhandled: ReturnType<typeof vi.fn<(err: unknown) => void>>;
   let original: typeof rxjsConfig.onUnhandledError;
+  let error: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     original = rxjsConfig.onUnhandledError;
     unhandled = vi.fn<(err: unknown) => void>();
     rxjsConfig.onUnhandledError = unhandled;
+    error = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
     rxjsConfig.onUnhandledError = original;
+    error.mockRestore();
   });
 
   /** rxjs reports unhandled errors on a macrotask. */
@@ -160,22 +162,31 @@ describe('failure handling', () => {
     expect(service.allowedModels()).toEqual([]);
 
     await flush();
-    // Nothing in the app handles this. The user sees an empty model picker and
-    // an error in the console with no context.
-    expect(unhandled).toHaveBeenCalledWith(expect.objectContaining({ message: 'network' }));
+    // Handled, not escaping. A chat surface with an empty model picker is a
+    // degraded state the caller can recover from; an uncaught error is not.
+    expect(unhandled).not.toHaveBeenCalled();
   });
 
-  it('never retries after a failed load — a found defect', async () => {
-    // The latch is set before the request, and nothing ever clears it, so one
-    // failed bootstrap fetch leaves the service permanently empty for the life
-    // of the page. In practice: a user who loads the app during a brief server
-    // restart gets an empty model picker and no way to recover but a reload,
-    // with nothing logged to explain it.
-    //
-    // The fix is small — add an `error` handler that resets `this.loaded = false`
-    // (and ideally logs) — but it is a behaviour change, so it belongs in its own
-    // commit rather than buried in the change that adds this suite. When that
-    // lands, this test should be rewritten to assert the retry.
+  it('says which URL failed, so the reason is not silent', async () => {
+    // The failure is otherwise invisible: signals stay at their defaults and the
+    // picker is simply empty. The base URL is included because `load()` takes one
+    // — an embedded host passing `/embedded/chat` needs to know which it was.
+    const { service } = create(throwError(() => new Error('network')));
+
+    service.load('/embedded/chat');
+    await flush();
+
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('/embedded/chat/config'),
+      expect.objectContaining({ message: 'network' }),
+    );
+  });
+
+  it('releases the latch so a later call retries', async () => {
+    // Was a found defect, fixed in the same PR: the latch is set before the
+    // request (so two synchronous callers still make one) but released on error,
+    // so a user who loads the app during a brief server restart is not stuck with
+    // an empty picker for the life of the page.
     let calls = 0;
     const get = vi.fn(() => {
       calls++;
@@ -186,10 +197,53 @@ describe('failure handling', () => {
     }).get(ChatConfigService);
 
     service.load();
+    await flush();
     service.load();
     await flush();
 
-    expect(calls).toBe(1);
-    expect(service.defaultModel()).toBe('');
+    expect(calls).toBe(2);
+  });
+
+  it('still coalesces synchronous callers while a request is in flight', async () => {
+    // The other half of the contract, and the part the fix could plausibly break:
+    // releasing the latch must not turn every APP_INITIALIZER + component pair
+    // into two requests. The latch is only released once the error arrives.
+    const pending = new Subject();
+    const { service, get } = create(pending);
+
+    service.load();
+    service.load();
+
+    expect(get).toHaveBeenCalledTimes(1);
+
+    pending.error(new Error('too late'));
+    await flush();
+
+    // And once it has failed, the next call is allowed through.
+    service.load();
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('recovers with real config on the retry', async () => {
+    // End to end: fail, then succeed. This is the user-visible payoff — the
+    // picker fills in without a page reload.
+    let attempt = 0;
+    const get = vi.fn(() => {
+      attempt++;
+      return attempt === 1
+        ? throwError(() => new Error('server restarting'))
+        : of({ model: 'gpt-4o-mini', contextLimit: 200_000, allowedModels: ['gpt-4o-mini'], tools: [] });
+    });
+    const service = Injector.create({
+      providers: [{ provide: HttpClient, useValue: { get } }, { provide: ChatConfigService }],
+    }).get(ChatConfigService);
+
+    service.load();
+    await flush();
+    service.load();
+    await flush();
+
+    expect(service.defaultModel()).toBe('gpt-4o-mini');
+    expect(service.allowedModels()).toEqual(['gpt-4o-mini']);
   });
 });
