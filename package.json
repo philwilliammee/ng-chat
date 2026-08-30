@@ -38,7 +38,9 @@
     "run:local": "npm run build && npm run start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "tsc -p server/tsconfig.json --noEmit && ng build --configuration production && vitest run"
+    "test:coverage": "vitest run --coverage",
+    "check": "tsc -p server/tsconfig.json --noEmit && ng build --configuration production",
+    "verify": "npm run check && npm run test:coverage"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^2.0.0",
