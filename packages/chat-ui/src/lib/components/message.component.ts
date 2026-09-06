@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { MatExpansionModule } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
-import { MarkdownPipe } from '../pipes/markdown.pipe';
+import { MarkdownComponent } from '../markdown/markdown.component';
 import { ToolCallComponent, type ToolPart } from './tool-call.component';
 import { ReasoningPanelComponent } from './reasoning-panel.component';
 
@@ -31,7 +31,7 @@ export interface ChatMessageLike {
 @Component({
   selector: 'ng-chat-message',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MatExpansionModule, MatIconModule, MarkdownPipe, ToolCallComponent, ReasoningPanelComponent],
+  imports: [MatExpansionModule, MatIconModule, MarkdownComponent, ToolCallComponent, ReasoningPanelComponent],
   template: `
     <div class="row" [class.user]="isUser()" [class.assistant]="!isUser()">
       <div class="bubble">
@@ -41,7 +41,7 @@ export interface ChatMessageLike {
               @if (isUser()) {
                 <div class="text user-text">{{ part.text }}</div>
               } @else {
-                <div class="text" [innerHTML]="part.text | ngChatMarkdown"></div>
+                <ng-chat-markdown class="text" [text]="part.text" />
               }
             }
             @case ('reasoning') {

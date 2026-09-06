@@ -59,7 +59,7 @@ flowchart LR
             <tr>
               <td><code>packages/chat-storage/</code></td>
               <td><code>&#64;ng-chat/storage</code></td>
-              <td>ChatHistoryService, ChatSidebarComponent, ConversationStore (IndexedDB)</td>
+              <td>ChatHistoryService (via provideChatHistory()), ChatSidebarComponent, ConversationStore (IndexedDB)</td>
             </tr>
             <tr>
               <td><code>client/</code></td>
@@ -306,7 +306,9 @@ sequenceDiagram
         <p>
           <strong><code>&#64;ng-chat/storage</code></strong> provides IndexedDB-backed conversation
           persistence. <code>ChatHistoryService</code> manages all state; <code>ChatSidebarComponent</code>
-          is purely presentational — it emits events and reads inputs.
+          is purely presentational — it emits events and reads inputs. The service is provided per
+          chat surface with <code>provideChatHistory()</code> rather than in the root injector, so two
+          chats on one page cannot share an active conversation.
         </p>
 
         <h3>Sidebar features</h3>
@@ -388,8 +390,9 @@ sequenceDiagram
       <section class="doc-section">
         <h2>Markdown Rendering</h2>
         <p>
-          Assistant messages are rendered via <code>MarkdownPipe</code>
-          (<code>packages/chat-ui/src/lib/pipes/markdown.pipe.ts</code>) using
+          Assistant messages are rendered via <code>&lt;ng-chat-markdown&gt;</code>
+          (<code>packages/chat-ui/src/lib/markdown/</code>), which loads its renderer on
+          first use rather than at bundle time, using
           <a href="https://marked.js.org" target="_blank" rel="noopener">marked</a> in GFM mode.
         </p>
 
