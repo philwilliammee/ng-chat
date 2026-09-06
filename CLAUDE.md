@@ -67,7 +67,7 @@ This is a monorepo with three internal packages consumed as TypeScript source (n
 |---|---|---|
 | `@ng-chat/server` | `packages/chat-server/src/index.ts` | Hono router factory + tool registry |
 | `@ng-chat/ui` | `packages/chat-ui/src/public-api.ts` | Angular signals chat components |
-| `@ng-chat/storage` | `packages/chat-storage/src/public-api.ts` | IndexedDB conversation history (`ChatHistoryService`, `ChatSidebarComponent`) |
+| `@ng-chat/storage` | `packages/chat-storage/src/public-api.ts` | IndexedDB conversation history (`ChatHistoryService` — provide per chat surface with `provideChatHistory()`, not in the root injector; `ChatSidebarComponent`) |
 
 The `server/` and `client/` directories are the demo app wiring these packages together. The two sides communicate exclusively via the **Vercel AI SDK UI Message Stream Protocol** (SSE), so either can be replaced independently.
 
@@ -92,7 +92,11 @@ All components are standalone, OnPush, signals-based (Angular 21). No NgModules 
 - `<ng-chat-message>` — renders message parts: `text` (user plain / assistant markdown), `reasoning` (delegated to `<ng-chat-reasoning-panel>`), `tool-*` / `dynamic-tool` (delegated to `<ng-chat-tool-call>`)
 - `<ng-chat-reasoning-panel>` — collapsible panel for reasoning parts; shows "Thinking…" with a spinner during streaming and "Thought for Ns" when done
 - `<ng-chat-input>` — textarea with send/stop controls
-- `MarkdownPipe` — sanitized HTML from markdown text parts
+- `<ng-chat-markdown [text]="…">` — sanitized HTML from markdown text parts. `marked` and
+  `dompurify` are loaded through `import()` on first render (`lib/markdown/markdown-renderer.ts`),
+  so embedding chat in an app shell does not put ~70 kB of them in the initial bundle.
+  `MarkdownPipe` is still exported and deprecated — a pipe cannot be async, so it can only
+  import them statically
 
 **`NgChatState` / `NgChat`** (`ng-chat-state.ts`) — we do not use `Chat` from `@ai-sdk/angular`. The SDK's `AngularChatState.replaceMessage` stores the same mutated `activeResponse.state.message` reference on every streaming chunk; `MessageComponent`'s `input.required` signal sees no reference change and OnPush never re-renders mid-stream. `NgChatState` fixes this with a shallow-clone in `replaceMessage`. `NgChat` is a concrete `AbstractChat` subclass that wires `NgChatState` in.
 

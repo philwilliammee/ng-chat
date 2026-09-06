@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal, viewChild } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { ChatComponent } from '@ng-chat/ui';
-import { ChatHistoryService, ChatSidebarComponent } from '@ng-chat/storage';
+import { ChatHistoryService, ChatSidebarComponent, provideChatHistory } from '@ng-chat/storage';
 import { ThinkingPreferenceService } from '../../services/thinking-preference.service';
 import { ModelPreferenceService } from '../../services/model-preference.service';
 import { ChatConfigService } from '../../services/chat-config.service';
@@ -11,6 +11,7 @@ import { HttpClient } from '@angular/common/http';
   selector: 'app-chat-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [ChatComponent, ChatSidebarComponent],
+  providers: [provideChatHistory()],
   template: `
     <div class="chat-page">
       <div class="history-panel" [class.collapsed]="sidebarCollapsed()">
