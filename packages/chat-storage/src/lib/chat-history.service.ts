@@ -1,18 +1,21 @@
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, computed, signal, type Provider } from '@angular/core';
 import type { UIMessage } from 'ai';
 import { ConversationStore } from './conversation-store';
 import type { Conversation } from './types';
 
 /**
  * Angular service that wraps ConversationStore with signals.
- * Inject this, call init() once on app startup, then bind:
+ *
+ * Provided per chat surface, not in the root injector — see provideChatHistory() below.
+ * Add it to the providers of the component hosting the chat, call init() once in that
+ * component's ngOnInit, then bind:
  *
  *   <ng-chat
  *     [messages]="history.activeMessages()"
  *     [conversationId]="history.activeId() ?? undefined"
  *     (finish)="history.saveConversation($event)" />
  */
-@Injectable({ providedIn: 'root' })
+@Injectable()
 export class ChatHistoryService {
   private readonly store = new ConversationStore();
 
@@ -112,4 +115,23 @@ function deriveTitle(messages: UIMessage[], fallback: string): string {
     (p): p is { type: 'text'; text: string } => p.type === 'text',
   );
   return textPart?.text.slice(0, 60).trim() || fallback;
+}
+
+/**
+ * Provide one ChatHistoryService for the component hosting a chat.
+ *
+ * Deliberately not `providedIn: 'root'`: a root-scoped history is a single conversation
+ * list and a single activeId shared by every chat on the page, so a second chat surface —
+ * a docked panel beside a full chat page, two chats in a split view — silently switches
+ * the first one's conversation and writes its messages into it. There is nothing to see in
+ * the DOM and nothing in the console; it looks like the store losing messages.
+ *
+ * Scoping it to the host makes each surface its own history, and makes a *missing*
+ * provider a loud NullInjectorError at construction rather than a quiet data merge.
+ * Consumers that genuinely want one shared history put this in their app config instead.
+ *
+ *   @Component({ providers: [provideChatHistory()] })
+ */
+export function provideChatHistory(): Provider[] {
+  return [ChatHistoryService];
 }
