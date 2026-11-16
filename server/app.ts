@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic } from '@hono/node-server/serve-static';
 import {
@@ -13,10 +12,12 @@ import {
   createFileEditorTools,
 } from '@ng-chat/server';
 import { config } from './app.config.js';
+import { requestLog } from './request-log.js';
 
 const app = new Hono();
 
-app.use('*', logger());
+// One line per request, minus /health and successful hashed-asset fetches (request-log.ts).
+app.use('*', requestLog());
 app.use('*', secureHeaders({ xFrameOptions: false }));
 
 app.get('/health', (c) =>
